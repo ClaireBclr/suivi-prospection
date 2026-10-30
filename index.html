@@ -23,12 +23,14 @@
       value jsonb not null
     );
     alter table public.kv_store enable row level security;
-    create policy "kv lecture"     on public.kv_store for select to anon using (true);
-    create policy "kv ajout"       on public.kv_store for insert to anon with check (true);
-    create policy "kv mise a jour" on public.kv_store for update to anon using (true) with check (true);
-    create policy "kv suppression" on public.kv_store for delete to anon using (true);
+    create policy "kv equipe" on public.kv_store for all to authenticated using (true) with check (true);
 
   Puis renseigner SUPABASE_URL et SUPABASE_ANON_KEY plus bas (Project Settings > API).
+
+  ACCÈS D'ÉQUIPE : la page est publique, mais la table n'est lisible qu'une fois connecté
+  au compte Supabase partagé (Authentication > Users > Add user > Create new user,
+  e-mail = EMAIL_EQUIPE ci-dessous, cocher « Auto Confirm User »). Son mot de passe est
+  le mot de passe d'équipe demandé à l'ouverture de la page ; on le change dans Supabase.
 
   CLÉS UTILISÉES DANS kv_store :
     team:admin              { ownerHash, creeLe }            code propriétaire (haché SHA-256)
@@ -436,6 +438,7 @@ table.donnees{width:100%; border-collapse:separate; border-spacing:0; font-size:
 <!-- Écrans plein page -->
 <div id="ecran-chargement" class="ecran"><div class="chargement"><div class="spinner"></div><span>Chargement…</span></div></div>
 <div id="ecran-config" class="ecran" hidden></div>
+<div id="ecran-equipe" class="ecran" hidden></div>
 <div id="ecran-setup" class="ecran" hidden></div>
 <div id="ecran-connexion" class="ecran" hidden></div>
 
@@ -455,6 +458,9 @@ table.donnees{width:100%; border-collapse:separate; border-spacing:0; font-size:
    ===================================================================== */
 const SUPABASE_URL = "https://egnpvygydhrvozctfwio.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnbnB2eWd5ZGhydm96Y3Rmd2lvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzNTIwNTgsImV4cCI6MjEwODkyODA1OH0._bZ8T3R6LofE7jzXTt1a-CYz6_OdWQ9RWntk-D4mL_s";
+
+// Compte Supabase partagé par l'équipe (voir « ACCÈS D'ÉQUIPE » en haut du fichier)
+const EMAIL_EQUIPE = "equipe@suivi-prospection.fr";
 
 // Logo : coller ici le base64 (avec ou sans le préfixe "data:image/png;base64,").
 // Vide = logo par défaut. Sert aussi de favicon.
@@ -485,6 +491,7 @@ const TAUX = [
 ];
 const OWNER = 'owner';
 const CLE_SESSION = 'prospection.session';
+const CLE_JETON = 'prospection.jeton';
 
 /* =====================================================================
    ICÔNES (SVG au trait)
@@ -613,14 +620,53 @@ const SEMAINE_COURANTE = cleSemaine(aujourdhui());
    ===================================================================== */
 const CONFIG_OK = !/VOTRE/.test(SUPABASE_URL) && !/VOTRE/.test(SUPABASE_ANON_KEY);
 
-async function sb(chemin, options = {}) {
+/* --- Accès d'équipe : jeton du compte Supabase partagé, gardé sur l'appareil --- */
+class AccesEquipeRequis extends Error {
+  constructor() { super("Mot de passe d'équipe requis."); }
+}
+let JETON = lireJeton();
+function lireJeton() {
+  try { return JSON.parse(localStorage.getItem(CLE_JETON) || 'null'); } catch { return null; }
+}
+function sauverJeton(j) {
+  JETON = j;
+  try { j ? localStorage.setItem(CLE_JETON, JSON.stringify(j)) : localStorage.removeItem(CLE_JETON); } catch { /* stockage indisponible */ }
+}
+async function demanderJeton(corps, grant) {
+  let rep;
+  try {
+    rep = await fetch(`${SUPABASE_URL.replace(/\/$/, '')}/auth/v1/token?grant_type=${grant}`, {
+      method: 'POST',
+      headers: { apikey: SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(corps),
+    });
+  } catch {
+    throw new Error('Connexion au serveur impossible. Vérifiez votre connexion internet puis réessayez.');
+  }
+  if (!rep.ok) return null;
+  const d = await rep.json();
+  return { acces: d.access_token, renouv: d.refresh_token };
+}
+async function connecterEquipe(motDePasse) {
+  const j = await demanderJeton({ email: EMAIL_EQUIPE, password: motDePasse }, 'password');
+  if (j) sauverJeton(j);
+  return !!j;
+}
+async function renouvelerJeton() {
+  const j = JETON?.renouv ? await demanderJeton({ refresh_token: JETON.renouv }, 'refresh_token') : null;
+  sauverJeton(j);
+  return !!j;
+}
+
+async function sb(chemin, options = {}, deuxiemeEssai = false) {
+  if (!JETON) throw new AccesEquipeRequis();
   let rep;
   try {
     rep = await fetch(`${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/${chemin}`, {
       ...options,
       headers: {
         apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        Authorization: `Bearer ${JETON.acces}`,
         'Content-Type': 'application/json',
         ...(options.headers || {}),
       },
@@ -628,10 +674,17 @@ async function sb(chemin, options = {}) {
   } catch {
     throw new Error('Connexion au serveur impossible. Vérifiez votre connexion internet puis réessayez.');
   }
+  // Jeton expiré (au bout d'une heure) : on le renouvelle une fois, sinon retour au mot de passe d'équipe
+  if (rep.status === 401) {
+    if (!deuxiemeEssai && await renouvelerJeton()) return sb(chemin, options, true);
+    sauverJeton(null);
+    afficherAccesEquipe();
+    throw new AccesEquipeRequis();
+  }
   if (!rep.ok) {
     let detail = '';
     try { detail = (await rep.json()).message || ''; } catch { /* corps vide */ }
-    if (rep.status === 401 || rep.status === 403) throw new Error("Accès refusé par Supabase : vérifiez la clé « anon » et les règles RLS de la table kv_store.");
+    if (rep.status === 403) throw new Error("Accès refusé par Supabase : vérifiez les règles RLS de la table kv_store.");
     if (rep.status === 404 || /kv_store/.test(detail)) throw new Error("Table kv_store introuvable dans Supabase : exécutez le script SQL d'installation.");
     throw new Error(`Erreur du serveur (${rep.status})${detail ? ' : ' + detail : ''}.`);
   }
@@ -771,7 +824,7 @@ function infosSession() {
    INTERFACE COMMUNE : écrans, toasts, modales
    ===================================================================== */
 function afficher(id) {
-  for (const e of ['ecran-chargement', 'ecran-config', 'ecran-setup', 'ecran-connexion', 'ecran-app']) $(e).hidden = e !== id;
+  for (const e of ['ecran-chargement', 'ecran-config', 'ecran-equipe', 'ecran-setup', 'ecran-connexion', 'ecran-app']) $(e).hidden = e !== id;
 }
 
 function toast(message, type = 'ok') {
@@ -898,6 +951,38 @@ const SUPABASE_ANON_KEY = "eyJhbGciOi…";</div>
       <p class="note">Le script SQL de création de la table kv_store figure en commentaire en haut du fichier.</p>
     </div></div>`;
   afficher('ecran-config');
+}
+
+/* =====================================================================
+   ÉCRAN : MOT DE PASSE D'ÉQUIPE (avant toute lecture des données)
+   ===================================================================== */
+function afficherAccesEquipe() {
+  S.saisieModifiee = false;
+  $('ecran-equipe').innerHTML = `
+    <div class="carte-auth simple apparait">
+      <form class="auth-form" id="form-equipe" novalidate>
+        <div class="logo-ligne"><img src="${logoUrl()}" alt=""><span>${esc(TITRE_APPLI)}</span></div>
+        <div><h2>Accès réservé à l'équipe</h2><p class="intro">Saisissez le mot de passe d'équipe. Il n'est demandé qu'une fois sur cet appareil.</p></div>
+        ${champMdp('mdp', "Mot de passe d'équipe")}
+        <p class="form-erreur" hidden></p>
+        <button class="btn btn-primary" type="submit">Continuer</button>
+      </form>
+    </div>`;
+  afficher('ecran-equipe');
+  const form = $('form-equipe');
+  form.querySelector('input').focus();
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    const mdp = new FormData(form).get('mdp');
+    const err = form.querySelector('.form-erreur');
+    const montrer = m => { err.innerHTML = `${ic('alerte')}<span>${esc(m)}</span>`; err.hidden = false; };
+    err.hidden = true;
+    if (!mdp) return montrer("Saisissez le mot de passe d'équipe.");
+    tenter(form.querySelector('[type=submit]'), async () => {
+      if (!(await connecterEquipe(mdp))) return montrer('Mot de passe incorrect.');
+      init();
+    });
+  });
 }
 
 /* =====================================================================
@@ -1689,10 +1774,12 @@ window.addEventListener('beforeunload', e => {
 async function init() {
   appliquerLogo();
   if (!CONFIG_OK) return afficherConfigManquante();
+  if (!JETON) return afficherAccesEquipe();
   afficher('ecran-chargement');
   try {
     await chargerTout();
   } catch (e) {
+    if (e instanceof AccesEquipeRequis) return afficherAccesEquipe();
     console.error(e);
     $('ecran-config').innerHTML = `
       <div class="carte-auth simple apparait"><div class="auth-form">
