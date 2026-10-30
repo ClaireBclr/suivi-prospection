@@ -1,0 +1,1713 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Suivi de prospection</title>
+<link rel="icon" id="favicon" href="">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<!-- SheetJS : export Excel (.xlsx) -->
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" defer></script>
+
+<!--
+  =====================================================================
+  SUIVI DE PROSPECTION TÉLÉPHONIQUE — fichier unique, déployable en statique
+  =====================================================================
+
+  MISE EN PLACE SUPABASE (à faire une seule fois, dans l'éditeur SQL) :
+
+    create table if not exists public.kv_store (
+      key   text primary key,
+      value jsonb not null
+    );
+    alter table public.kv_store enable row level security;
+    create policy "kv lecture"     on public.kv_store for select to anon using (true);
+    create policy "kv ajout"       on public.kv_store for insert to anon with check (true);
+    create policy "kv mise a jour" on public.kv_store for update to anon using (true) with check (true);
+    create policy "kv suppression" on public.kv_store for delete to anon using (true);
+
+  Puis renseigner SUPABASE_URL et SUPABASE_ANON_KEY plus bas (Project Settings > API).
+
+  CLÉS UTILISÉES DANS kv_store :
+    team:admin              { ownerHash, creeLe }            code propriétaire (haché SHA-256)
+    team:managers           [ { id, name, code, creeLe } ]   managers secondaires (Claire pré-créée)
+    team:reps               [ { id, name, password, managerId, creeLe } ]
+    team:entries:<idRep>    { "2026-W44": { heures, appels, ... , majLe } }
+  Chaque téléprospecteur a sa propre clé de saisies : deux personnes qui enregistrent
+  en même temps ne peuvent pas écraser les chiffres l'une de l'autre.
+-->
+
+<style>
+/* ============ Thème ============ */
+:root{
+  --bg:#F6F5F2;
+  --surface:#FFFFFF;
+  --surface-2:#FBFAF8;
+  --texte:#1C1917;
+  --texte-2:#57534E;
+  --muted:#8A847E;
+  --bord:#E8E5E0;
+  --bord-fort:#D6D2CC;
+  --accent:#EA580C;
+  --accent-fonce:#C2410C;
+  --accent-doux:#FFF1E7;
+  --accent-ligne:#FED7BA;
+  --ok:#15803D; --ok-doux:#E8F6EC;
+  --alerte:#B45309; --alerte-doux:#FEF3E2;
+  --danger:#DC2626; --danger-doux:#FDECEC;
+  --n1:#E5484D; --n2:#F5A524; --n3:#F97316; --n4:#16A34A;
+  --rayon:16px; --rayon-s:10px;
+  --ombre:0 1px 2px rgba(28,25,23,.04), 0 4px 16px rgba(28,25,23,.05);
+  --ombre-haute:0 12px 40px rgba(28,25,23,.14), 0 2px 6px rgba(28,25,23,.06);
+  --f-titre:"Bricolage Grotesque", "Inter", system-ui, sans-serif;
+  --f-texte:"Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono:"JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --transition:160ms cubic-bezier(.2,.7,.3,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:var(--bg); color:var(--texte);
+  font:400 15px/1.5 var(--f-texte);
+  -webkit-font-smoothing:antialiased;
+  min-height:100vh;
+}
+h1,h2,h3{font-family:var(--f-titre); letter-spacing:-.02em; margin:0; line-height:1.15}
+h1{font-size:28px; font-weight:700}
+h2{font-size:18px; font-weight:600}
+h3{font-size:15px; font-weight:600}
+p{margin:0}
+button,input,select{font:inherit; color:inherit}
+.mono{font-family:var(--f-mono); font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+.ic{width:18px; height:18px; flex:none}
+[hidden]{display:none !important}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:6px}
+
+/* ============ Boutons ============ */
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  height:40px; padding:0 16px; border-radius:var(--rayon-s);
+  border:1px solid transparent; font-weight:600; font-size:14px;
+  cursor:pointer; white-space:nowrap;
+  transition:background var(--transition), border-color var(--transition), transform var(--transition), box-shadow var(--transition), color var(--transition);
+}
+.btn:active{transform:translateY(1px)}
+.btn:disabled{opacity:.55; cursor:not-allowed}
+.btn-primary{background:var(--accent); color:#fff; box-shadow:0 1px 2px rgba(194,65,12,.3), inset 0 1px 0 rgba(255,255,255,.15)}
+.btn-primary:hover:not(:disabled){background:var(--accent-fonce); box-shadow:0 4px 14px rgba(234,88,12,.28)}
+.btn-ghost{background:var(--surface); border-color:var(--bord); color:var(--texte-2)}
+.btn-ghost:hover:not(:disabled){border-color:var(--bord-fort); color:var(--texte); background:var(--surface-2)}
+.btn-danger{background:var(--danger); color:#fff}
+.btn-danger:hover:not(:disabled){background:#B91C1C}
+.btn-sm{height:32px; padding:0 12px; font-size:13px}
+.btn-icone{
+  width:34px; height:34px; padding:0; border-radius:9px;
+  display:inline-flex; align-items:center; justify-content:center;
+  background:transparent; border:1px solid transparent; color:var(--muted); cursor:pointer;
+  transition:background var(--transition), color var(--transition), border-color var(--transition);
+}
+.btn-icone:hover{background:var(--surface-2); color:var(--texte); border-color:var(--bord)}
+.btn-icone.danger:hover{color:var(--danger); background:var(--danger-doux); border-color:transparent}
+.btn.charge{position:relative; color:transparent !important}
+.btn.charge::after{
+  content:""; position:absolute; width:16px; height:16px; border-radius:50%;
+  border:2px solid rgba(255,255,255,.5); border-top-color:#fff; animation:tourne .7s linear infinite;
+}
+.btn-ghost.charge::after{border-color:var(--bord); border-top-color:var(--accent)}
+@keyframes tourne{to{transform:rotate(360deg)}}
+
+/* ============ Champs ============ */
+.champ{display:flex; flex-direction:column; gap:6px; min-width:0}
+.champ > span{font-size:13px; font-weight:500; color:var(--texte-2)}
+.input, .champ input, .champ select{
+  height:42px; width:100%; padding:0 12px;
+  background:var(--surface); border:1px solid var(--bord); border-radius:var(--rayon-s);
+  transition:border-color var(--transition), box-shadow var(--transition);
+}
+.champ input:hover, .champ select:hover{border-color:var(--bord-fort)}
+.champ input:focus, .champ select:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 4px rgba(234,88,12,.12)}
+.mdp{position:relative}
+.mdp input{padding-right:44px}
+.oeil{
+  position:absolute; right:4px; top:50%; transform:translateY(-50%);
+  width:34px; height:34px; border:0; background:transparent; color:var(--muted);
+  border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center;
+}
+.oeil:hover{color:var(--texte); background:var(--surface-2)}
+.form-erreur{
+  display:flex; gap:8px; align-items:flex-start;
+  color:var(--danger); background:var(--danger-doux); font-size:13px;
+  padding:10px 12px; border-radius:var(--rayon-s);
+}
+
+/* ============ Écrans plein page (chargement, config, setup, connexion) ============ */
+.ecran{min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px 16px}
+.chargement{display:flex; flex-direction:column; align-items:center; gap:14px; color:var(--muted)}
+.spinner{width:28px; height:28px; border-radius:50%; border:3px solid var(--bord); border-top-color:var(--accent); animation:tourne .8s linear infinite}
+
+.carte-auth{
+  width:100%; max-width:960px; display:grid; grid-template-columns:1.05fr 1fr;
+  background:var(--surface); border-radius:24px; overflow:hidden; box-shadow:var(--ombre-haute);
+  border:1px solid var(--bord);
+}
+.carte-auth.simple{max-width:460px; grid-template-columns:1fr}
+.auth-marque{
+  position:relative; padding:40px; color:#FFF7F0; overflow:hidden;
+  background:
+    radial-gradient(120% 80% at 100% 0%, rgba(249,115,22,.55), transparent 60%),
+    radial-gradient(90% 70% at 0% 100%, rgba(234,88,12,.35), transparent 60%),
+    #1C1917;
+  display:flex; flex-direction:column; justify-content:space-between; gap:40px;
+}
+.auth-marque::after{
+  content:""; position:absolute; inset:0; pointer-events:none;
+  background-image:linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px);
+  background-size:32px 32px; mask-image:linear-gradient(180deg, #000, transparent 85%);
+}
+.auth-marque > *{position:relative; z-index:1}
+.auth-marque h1{font-size:34px; color:#fff; max-width:14ch}
+.auth-marque .sous{color:rgba(255,247,240,.72); margin-top:12px; max-width:36ch}
+.auth-points{display:flex; flex-direction:column; gap:14px; margin:0; padding:0; list-style:none}
+.auth-points li{display:flex; gap:12px; align-items:center; color:rgba(255,247,240,.86); font-size:14px}
+.auth-points .pastille{width:32px; height:32px; border-radius:9px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12); display:flex; align-items:center; justify-content:center; color:#FDBA8C}
+.logo-ligne{display:flex; align-items:center; gap:12px; font-family:var(--f-titre); font-weight:700; font-size:17px}
+.logo-ligne img{width:36px; height:36px; border-radius:10px; object-fit:contain; background:#fff}
+.auth-form{padding:40px; display:flex; flex-direction:column; gap:22px; justify-content:center}
+.auth-form h2{font-size:22px}
+.auth-form .intro{color:var(--muted); font-size:14px; margin-top:4px}
+.onglets{display:grid; grid-template-columns:1fr 1fr; gap:4px; padding:4px; background:var(--bg); border-radius:12px; border:1px solid var(--bord)}
+.onglet{
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  height:40px; border:0; border-radius:9px; background:transparent; color:var(--texte-2);
+  font-weight:600; font-size:14px; cursor:pointer; transition:background var(--transition), color var(--transition), box-shadow var(--transition);
+}
+.onglet:hover{color:var(--texte)}
+.onglet[aria-selected="true"]{background:var(--surface); color:var(--accent-fonce); box-shadow:0 1px 3px rgba(28,25,23,.1)}
+.pile{display:flex; flex-direction:column; gap:16px}
+.note{font-size:13px; color:var(--muted)}
+.code-config{font-family:var(--f-mono); font-size:12.5px; background:var(--bg); border:1px solid var(--bord); padding:12px; border-radius:10px; overflow:auto; white-space:pre}
+
+/* ============ Barre du haut ============ */
+.topbar{
+  position:sticky; top:0; z-index:20;
+  background:rgba(255,255,255,.86); backdrop-filter:saturate(1.4) blur(12px); -webkit-backdrop-filter:saturate(1.4) blur(12px);
+  border-bottom:1px solid var(--bord);
+}
+.topbar-in{max-width:1280px; margin:0 auto; padding:10px 24px; display:flex; align-items:center; gap:16px}
+.topbar .logo-ligne{font-size:16px; min-width:0}
+.topbar .logo-ligne img{width:32px; height:32px; border:1px solid var(--bord)}
+.topbar .logo-ligne span{white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.nav-semaine{
+  margin:0 auto; display:flex; align-items:center; gap:4px;
+  background:var(--bg); border:1px solid var(--bord); border-radius:12px; padding:3px;
+}
+.nav-semaine .btn-icone{width:32px; height:32px}
+.nav-semaine .btn-icone:disabled{opacity:.35; cursor:not-allowed; background:transparent; border-color:transparent}
+.semaine-label{
+  border:0; background:transparent; cursor:pointer; padding:2px 12px; border-radius:8px;
+  display:flex; flex-direction:column; align-items:center; line-height:1.2; min-width:170px;
+}
+.semaine-label:hover{background:var(--surface)}
+.semaine-label strong{font-family:var(--f-titre); font-size:15px}
+.semaine-label small{font-size:12px; color:var(--muted)}
+.semaine-label .encours{color:var(--accent); font-weight:600}
+.utilisateur{display:flex; align-items:center; gap:10px}
+.avatar{
+  width:34px; height:34px; border-radius:50%; flex:none;
+  background:var(--accent-doux); color:var(--accent-fonce); border:1px solid var(--accent-ligne);
+  display:flex; align-items:center; justify-content:center; font-weight:600; font-size:13px;
+}
+.utilisateur .qui{display:flex; flex-direction:column; line-height:1.2}
+.utilisateur .qui strong{font-size:14px}
+.utilisateur .qui small{font-size:12px; color:var(--muted)}
+
+/* ============ Mise en page ============ */
+main{max-width:1280px; margin:0 auto; padding:28px 24px 64px; display:flex; flex-direction:column; gap:20px}
+.entete-page{display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap}
+.surtitre{font-size:12px; text-transform:uppercase; letter-spacing:.08em; font-weight:600; color:var(--accent-fonce); margin-bottom:6px}
+.entete-page h1 .muted{font-weight:600}
+.actions-page{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+.filtre{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--texte-2)}
+.filtre select{height:40px; border:1px solid var(--bord); border-radius:var(--rayon-s); background:var(--surface); padding:0 10px; font-weight:500}
+.grille-2{display:grid; grid-template-columns:1fr 1fr; gap:20px}
+.carte{background:var(--surface); border:1px solid var(--bord); border-radius:var(--rayon); box-shadow:var(--ombre); min-width:0}
+.carte-tete{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 20px 14px; flex-wrap:wrap}
+.carte-tete .titre{display:flex; align-items:center; gap:10px}
+.carte-tete .titre .ic{color:var(--accent)}
+.carte-tete p{font-size:13px; color:var(--muted); margin-top:2px}
+.carte-corps{padding:0 20px 20px}
+
+/* KPI */
+.kpis{display:grid; grid-template-columns:repeat(4, 1fr); gap:16px}
+.kpi{padding:18px 20px; display:flex; flex-direction:column; gap:8px; transition:transform var(--transition), box-shadow var(--transition)}
+.kpi:hover{transform:translateY(-2px); box-shadow:0 8px 24px rgba(28,25,23,.08)}
+.kpi .lib{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--texte-2); font-weight:500}
+.kpi .lib .ic{width:16px; height:16px; color:var(--accent)}
+.kpi .val{font-family:var(--f-mono); font-size:28px; font-weight:600; letter-spacing:-.02em}
+.kpi .det{font-size:12.5px; color:var(--muted)}
+.kpi .det b{font-family:var(--f-mono); color:var(--texte-2); font-weight:600}
+
+/* Tableaux */
+.table-defile{overflow-x:auto; -webkit-overflow-scrolling:touch; border-top:1px solid var(--bord)}
+.table-defile::-webkit-scrollbar{height:10px}
+.table-defile::-webkit-scrollbar-thumb{background:var(--bord); border-radius:10px; border:3px solid var(--surface)}
+table.donnees{width:100%; border-collapse:separate; border-spacing:0; font-size:14px; min-width:1060px}
+.donnees th, .donnees td{padding:12px 11px; text-align:right; white-space:nowrap; border-bottom:1px solid var(--bord)}
+.donnees thead th{
+  font-size:11.5px; text-transform:uppercase; letter-spacing:.05em; font-weight:600; color:var(--muted);
+  background:var(--surface-2); position:sticky; top:0;
+}
+.donnees th:first-child, .donnees td:first-child{
+  text-align:left; position:sticky; left:0; z-index:1; background:var(--surface);
+  box-shadow:1px 0 0 var(--bord); min-width:200px;
+}
+.donnees thead th:first-child{background:var(--surface-2); z-index:2}
+.donnees td{font-family:var(--f-mono); font-variant-numeric:tabular-nums; color:var(--texte)}
+.donnees td:first-child{font-family:var(--f-texte)}
+.donnees tbody tr{transition:background var(--transition)}
+.donnees tbody tr:hover td{background:#FFFAF6}
+.donnees th.sep, .donnees td.sep{border-left:1px solid var(--bord)}
+.donnees td.taux{color:var(--accent-fonce); font-weight:600}
+.donnees td.vide{color:#C9C4BE}
+.donnees tfoot td{
+  background:var(--accent-doux); font-weight:600; border-bottom:0; border-top:2px solid var(--accent-ligne);
+}
+.donnees tfoot td:first-child{background:var(--accent-doux); font-family:var(--f-titre); color:var(--accent-fonce)}
+.nom-cell{display:flex; align-items:center; gap:10px}
+.nom-cell .avatar{width:30px; height:30px; font-size:12px}
+.nom-cell .nom{display:flex; flex-direction:column; line-height:1.25}
+.nom-cell .nom small{font-size:12px; color:var(--muted)}
+.puce{display:inline-flex; align-items:center; gap:4px; font-size:11.5px; font-weight:600; padding:2px 8px; border-radius:999px; font-family:var(--f-texte)}
+.puce-attente{background:var(--alerte-doux); color:var(--alerte)}
+.puce-manager{background:var(--bg); color:var(--texte-2); border:1px solid var(--bord)}
+
+/* Indicateur 4 barres */
+.signal{display:inline-flex; align-items:flex-end; gap:3px; height:18px; vertical-align:middle}
+.signal i{display:block; width:5px; border-radius:2px; background:var(--bord)}
+.signal i:nth-child(1){height:6px} .signal i:nth-child(2){height:10px} .signal i:nth-child(3){height:14px} .signal i:nth-child(4){height:18px}
+.signal.n1 i.on{background:var(--n1)} .signal.n2 i.on{background:var(--n2)} .signal.n3 i.on{background:var(--n3)} .signal.n4 i.on{background:var(--n4)}
+
+/* Classements */
+.segment{display:inline-flex; padding:3px; gap:2px; background:var(--bg); border:1px solid var(--bord); border-radius:10px}
+.segment button{border:0; background:transparent; height:30px; padding:0 12px; border-radius:7px; font-size:13px; font-weight:600; color:var(--texte-2); cursor:pointer; transition:background var(--transition), color var(--transition)}
+.segment button[aria-pressed="true"]{background:var(--surface); color:var(--accent-fonce); box-shadow:0 1px 2px rgba(28,25,23,.1)}
+.mini-nav{display:inline-flex; align-items:center; gap:2px}
+.mini-nav strong{font-family:var(--f-titre); font-size:14px; min-width:120px; text-align:center}
+.classement{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:12px}
+.classement li{display:grid; grid-template-columns:28px minmax(0,1fr) auto; gap:12px; align-items:center}
+.rang{width:28px; height:28px; border-radius:8px; background:var(--bg); color:var(--texte-2); font-family:var(--f-mono); font-size:13px; font-weight:600; display:flex; align-items:center; justify-content:center}
+.classement li:nth-child(1) .rang{background:var(--accent); color:#fff}
+.classement li:nth-child(2) .rang{background:#FDBA8C; color:#7C2D12}
+.classement li:nth-child(3) .rang{background:var(--accent-doux); color:var(--accent-fonce)}
+.barre-nom{display:flex; justify-content:space-between; font-size:14px; font-weight:500; margin-bottom:6px; gap:8px}
+.barre-nom span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.barre{height:8px; background:var(--bg); border-radius:999px; overflow:hidden}
+.barre > i{display:block; height:100%; border-radius:999px; background:linear-gradient(90deg, #FDBA74, var(--accent)); width:0; transition:width 600ms cubic-bezier(.2,.7,.3,1)}
+.classement .valeur{font-family:var(--f-mono); font-weight:600; font-size:15px; min-width:44px; text-align:right}
+.vide-etat{display:flex; flex-direction:column; align-items:center; gap:8px; padding:28px 12px; color:var(--muted); text-align:center; font-size:14px}
+.vide-etat .ic{width:26px; height:26px; color:var(--bord-fort)}
+
+/* Listes équipe / managers */
+.form-ligne{display:grid; grid-template-columns:1fr 1fr auto; gap:10px; align-items:end; padding:16px; background:var(--surface-2); border:1px solid var(--bord); border-radius:12px; margin-bottom:14px}
+.form-ligne.trois{grid-template-columns:1fr 1fr 1fr auto}
+.liste{list-style:none; margin:0; padding:0}
+.liste li{display:flex; align-items:center; gap:12px; padding:12px 4px; border-bottom:1px solid var(--bord)}
+.liste li:last-child{border-bottom:0}
+.liste .infos{flex:1; min-width:0; display:flex; flex-direction:column; gap:2px}
+.liste .infos strong{font-weight:600; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.liste .infos small{font-size:12.5px; color:var(--muted)}
+.secret-zone{display:inline-flex; align-items:center; gap:2px; background:var(--bg); border:1px solid var(--bord); border-radius:9px; padding:0 2px 0 10px; height:34px}
+.secret{font-family:var(--f-mono); font-size:13px; min-width:80px; color:var(--texte-2)}
+.secret-zone .btn-icone{width:30px; height:30px}
+.lien{border:0; background:none; padding:0; color:var(--accent-fonce); font-weight:600; font-size:13px; cursor:pointer; display:inline-flex; gap:6px; align-items:center}
+.lien:hover{text-decoration:underline}
+.pied-carte{padding:14px 20px; border-top:1px solid var(--bord); display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap}
+
+/* Saisie téléprospecteur */
+.saisie{display:grid; grid-template-columns:minmax(0,1.6fr) minmax(280px,1fr); gap:20px; align-items:start}
+.groupe{padding:18px 20px; border-top:1px solid var(--bord)}
+.groupe h3{display:flex; align-items:center; gap:8px; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--texte-2); margin-bottom:14px}
+.groupe h3 .ic{width:16px; height:16px; color:var(--accent)}
+.champs{display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:14px}
+.champs.quatre{grid-template-columns:repeat(4, minmax(0,1fr))}
+.champ-num input{font-family:var(--f-mono); font-size:17px; font-weight:600; height:48px}
+.champ-num .unite{position:relative}
+.champ-num .unite::after{content:attr(data-unite); position:absolute; right:12px; top:50%; transform:translateY(-50%); color:var(--muted); font-size:13px; pointer-events:none}
+.barre-action{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 20px; border-top:1px solid var(--bord); background:var(--surface-2); border-radius:0 0 var(--rayon) var(--rayon); flex-wrap:wrap}
+.etat-saisie{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted)}
+.etat-saisie .point{width:8px; height:8px; border-radius:50%; background:var(--bord-fort)}
+.etat-saisie.modifie .point{background:var(--alerte)}
+.etat-saisie.ok .point{background:var(--ok)}
+.indicateurs{position:sticky; top:84px}
+.jauge{padding:16px 20px; border-top:1px solid var(--bord)}
+.jauge .haut{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px}
+.jauge .haut span{font-size:14px; color:var(--texte-2); font-weight:500}
+.jauge .haut strong{font-family:var(--f-mono); font-size:26px; font-weight:600; letter-spacing:-.02em}
+.jauge .formule{font-size:12px; color:var(--muted); margin-top:8px; font-family:var(--f-mono)}
+.jauge.refus .barre > i{background:linear-gradient(90deg, #FCA5A5, var(--danger))}
+.jauge.decroche .barre > i{background:linear-gradient(90deg, #FDE68A, var(--n2))}
+
+/* Modale */
+.modal-fond{
+  position:fixed; inset:0; z-index:50; background:rgba(28,25,23,.42); backdrop-filter:blur(3px);
+  display:flex; align-items:center; justify-content:center; padding:16px; animation:fondu 160ms ease-out;
+}
+.modal-fond.sortie{opacity:0; transition:opacity 150ms}
+.modal{
+  width:100%; max-width:460px; background:var(--surface); border-radius:20px; box-shadow:var(--ombre-haute);
+  padding:24px; animation:monte 200ms cubic-bezier(.2,.7,.3,1); max-height:calc(100vh - 32px); overflow:auto;
+}
+.modal h3{font-size:19px; margin-bottom:16px}
+.modal-corps{display:flex; flex-direction:column; gap:16px}
+.modal-corps p{color:var(--texte-2); font-size:14px}
+.modal-actions{display:flex; justify-content:flex-end; gap:8px; margin-top:4px}
+.choix{border:0; margin:0; padding:0; display:flex; flex-direction:column; gap:8px}
+.choix legend{font-size:13px; font-weight:500; color:var(--texte-2); margin-bottom:6px; padding:0}
+.option{display:flex; gap:12px; align-items:flex-start; padding:12px 14px; border:1px solid var(--bord); border-radius:12px; cursor:pointer; transition:border-color var(--transition), background var(--transition)}
+.option:hover{border-color:var(--bord-fort)}
+.option:has(input:checked){border-color:var(--accent); background:var(--accent-doux)}
+.option input{accent-color:var(--accent); margin-top:3px}
+.option strong{display:block; font-size:14px}
+.option small{color:var(--muted); font-size:12.5px}
+@keyframes fondu{from{opacity:0}}
+@keyframes monte{from{opacity:0; transform:translateY(10px) scale(.98)}}
+
+/* Toasts */
+.toasts{position:fixed; right:20px; bottom:20px; z-index:60; display:flex; flex-direction:column; gap:10px; align-items:flex-end; pointer-events:none}
+.toast{
+  display:flex; align-items:center; gap:10px; padding:12px 16px; border-radius:12px; max-width:380px;
+  background:#1C1917; color:#fff; font-size:14px; font-weight:500; box-shadow:var(--ombre-haute);
+  opacity:0; transform:translateY(8px); transition:opacity 220ms, transform 220ms; pointer-events:auto;
+}
+.toast.visible{opacity:1; transform:none}
+.toast-ok .ic{color:#4ADE80}
+.toast-erreur{background:var(--danger)}
+
+.apparait{animation:monte 280ms cubic-bezier(.2,.7,.3,1) both}
+
+/* ============ Responsive ============ */
+@media (max-width:1024px){
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  .saisie{grid-template-columns:1fr}
+  .indicateurs{position:static}
+}
+@media (max-width:860px){
+  .carte-auth{grid-template-columns:1fr}
+  .auth-marque{padding:28px; gap:20px}
+  .auth-marque h1{font-size:26px}
+  .auth-points{display:none}
+  .auth-form{padding:28px 20px}
+  .grille-2{grid-template-columns:1fr}
+  .form-ligne, .form-ligne.trois{grid-template-columns:1fr}
+  .champs, .champs.quatre{grid-template-columns:repeat(2, minmax(0,1fr))}
+  .topbar-in{flex-wrap:wrap; padding:10px 16px; gap:10px}
+  .nav-semaine{order:3; width:100%; justify-content:space-between}
+  .utilisateur{margin-left:auto}
+  .utilisateur .qui{display:none}
+}
+@media (max-width:560px){
+  main{padding:20px 16px 48px}
+  h1{font-size:22px}
+  .kpis{gap:10px}
+  .kpi{padding:14px}
+  .kpi .val{font-size:22px}
+  .carte-tete{padding:16px 16px 12px}
+  .carte-corps{padding:0 16px 16px}
+  .groupe{padding:16px}
+  .actions-page{width:100%}
+  .actions-page .btn-primary{flex:1}
+  .filtre{width:100%} .filtre select{flex:1}
+  .semaine-label{min-width:0}
+  #btn-deconnexion span{display:none}
+  #btn-deconnexion{width:36px; padding:0}
+  .toasts{left:16px; right:16px; align-items:stretch}
+  .liste li{flex-wrap:wrap}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:1ms !important; transition-duration:1ms !important}
+}
+</style>
+</head>
+<body>
+
+<!-- Écrans plein page -->
+<div id="ecran-chargement" class="ecran"><div class="chargement"><div class="spinner"></div><span>Chargement…</span></div></div>
+<div id="ecran-config" class="ecran" hidden></div>
+<div id="ecran-setup" class="ecran" hidden></div>
+<div id="ecran-connexion" class="ecran" hidden></div>
+
+<!-- Application -->
+<div id="ecran-app" hidden>
+  <header class="topbar"><div class="topbar-in" id="topbar"></div></header>
+  <main id="main"></main>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+'use strict';
+
+/* =====================================================================
+   CONFIGURATION — à renseigner avant déploiement
+   ===================================================================== */
+const SUPABASE_URL = "https://egnpvygydhrvozctfwio.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnbnB2eWd5ZGhydm96Y3Rmd2lvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzNTIwNTgsImV4cCI6MjEwODkyODA1OH0._bZ8T3R6LofE7jzXTt1a-CYz6_OdWQ9RWntk-D4mL_s";
+
+// Logo : coller ici le base64 (avec ou sans le préfixe "data:image/png;base64,").
+// Vide = logo par défaut. Sert aussi de favicon.
+const LOGO_BASE64 = "";
+
+const TITRE_APPLI = "Suivi de prospection";
+const CODE_CLAIRE_DEFAUT = "Claire2026";      // code initial de Claire, modifiable ensuite par le propriétaire
+const SEUILS_DECROCHE = [0.10, 0.20, 0.30];   // taux de décroché : 2, 3 et 4 barres à partir de ces seuils
+
+/* =====================================================================
+   DÉFINITION DES CHAMPS
+   ===================================================================== */
+const CHAMPS = [
+  { k: 'heures',    label: 'Temps de travail',       court: 'Heures',    groupe: 'activite',  unite: 'h', decimal: true },
+  { k: 'appels',    label: "Nombre d'appels",        court: 'Appels',    groupe: 'activite' },
+  { k: 'decroches', label: 'Nombre de décrochés',    court: 'Décrochés', groupe: 'activite' },
+  { k: 'sms1',      label: "Nombre d'envois SMS 1",  court: 'SMS 1',     groupe: 'relances' },
+  { k: 'mail1',     label: "Nombre d'envois mail 1", court: 'Mail 1',    groupe: 'relances' },
+  { k: 'sms2',      label: "Nombre d'envois SMS 2",  court: 'SMS 2',     groupe: 'relances' },
+  { k: 'mail2',     label: "Nombre d'envois mail 2", court: 'Mail 2',    groupe: 'relances' },
+  { k: 'retours',   label: 'Nombre de retours',      court: 'Retours',   groupe: 'resultats' },
+  { k: 'refus',     label: 'Nombre de refus',        court: 'Refus',     groupe: 'resultats' },
+];
+const TAUX = [
+  { k: 'tDecroche', label: 'Taux de décroché', court: 'Tx décroché', num: 'decroches', classe: 'decroche' },
+  { k: 'tRetour',   label: 'Taux de retour',   court: 'Tx retour',   num: 'retours',   classe: 'retour' },
+  { k: 'tRefus',    label: 'Taux de refus',    court: 'Tx refus',    num: 'refus',     classe: 'refus' },
+];
+const OWNER = 'owner';
+const CLE_SESSION = 'prospection.session';
+
+/* =====================================================================
+   ICÔNES (SVG au trait)
+   ===================================================================== */
+const ICONES = {
+  chevronG: '<path d="m15 18-6-6 6-6"/>',
+  chevronD: '<path d="m9 18 6-6-6-6"/>',
+  sortie: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+  oeil: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
+  oeilBarre: '<path d="M9.9 9.9a3 3 0 1 0 4.2 4.2"/><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13.2 13.2 0 0 1-1.7 2.7"/><path d="M6.6 6.6A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="m2 2 20 20"/>',
+  telecharger: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+  equipe: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9"/><path d="M16 3.1a4 4 0 0 1 0 7.8"/>',
+  bouclier: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  telephone: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2Z"/>',
+  trophee: '<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.7V17c0 .6-.5 1-1 1.2C7.9 18.8 7 20.2 7 22"/><path d="M14 14.7V17c0 .6.5 1 1 1.2 1.1.6 2 2 2 3.8"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>',
+  corbeille: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  actualiser: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
+  valide: '<path d="M20 6 9 17l-5-5"/>',
+  alerte: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>',
+  crayon: '<path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
+  calendrier: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  horloge: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  cle: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>',
+  graphique: '<path d="M3 3v18h18"/><path d="M7 16v-5M12 16V7M17 16v-3"/>',
+  envoi: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
+  cible: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  fichier: '<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><path d="M14 2v6h6"/>',
+};
+function ic(nom, classe = '') {
+  return `<svg class="ic ${classe}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONES[nom] || ''}</svg>`;
+}
+
+/* =====================================================================
+   OUTILS
+   ===================================================================== */
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = p => p + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const normaliser = s => String(s).trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const slug = s => normaliser(s).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'export';
+const initiales = nom => String(nom).trim().split(/\s+/).slice(0, 2).map(m => m[0] || '').join('').toUpperCase() || '?';
+const fmtNombre = (n, dec = 0) => Number(n || 0).toLocaleString('fr-FR', { maximumFractionDigits: dec });
+const fmtPct = v => v == null ? '—' : (v * 100).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %';
+const parSur = (n, d) => d > 0 ? n / d : null;
+
+function logoUrl() {
+  if (LOGO_BASE64) return LOGO_BASE64.startsWith('data:') ? LOGO_BASE64 : 'data:image/png;base64,' + LOGO_BASE64;
+  // Logo par défaut : carré orange arrondi avec un combiné téléphonique
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F97316"/><stop offset="1" stop-color="#C2410C"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g)"/><g transform="translate(14 14) scale(1.5)" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONES.telephone}</g></svg>`;
+  return 'data:image/svg+xml,' + encodeURIComponent(svg);
+}
+function appliquerLogo() {
+  $('favicon').href = logoUrl();
+  document.title = TITRE_APPLI;
+}
+
+/* =====================================================================
+   SEMAINES ISO ET MOIS
+   Clé de semaine : "2026-W44". Une semaine appartient au mois de son jeudi
+   (même règle que la norme ISO), ce qui évite de la compter deux fois.
+   ===================================================================== */
+const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+const MOIS_COURT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+
+function cleSemaine(dateUTC) {
+  const t = new Date(dateUTC);
+  const j = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - j);
+  const annee = t.getUTCFullYear();
+  const num = Math.ceil(((t - Date.UTC(annee, 0, 1)) / 864e5 + 1) / 7);
+  return `${annee}-W${String(num).padStart(2, '0')}`;
+}
+function aujourdhui() {
+  const d = new Date();
+  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+}
+function lundi(cle) {
+  const [a, n] = cle.split('-W').map(Number);
+  const j4 = new Date(Date.UTC(a, 0, 4));
+  const j = j4.getUTCDay() || 7;
+  return new Date(Date.UTC(a, 0, 4 - j + 1 + (n - 1) * 7));
+}
+function decalerSemaine(cle, n) {
+  const l = lundi(cle);
+  l.setUTCDate(l.getUTCDate() + 7 * n);
+  return cleSemaine(l);
+}
+function moisDeSemaine(cle) {
+  const jeudi = lundi(cle);
+  jeudi.setUTCDate(jeudi.getUTCDate() + 3);
+  return `${jeudi.getUTCFullYear()}-${String(jeudi.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+function semainesDuMois(mois) {
+  const [a, m] = mois.split('-').map(Number);
+  let cle = cleSemaine(new Date(Date.UTC(a, m - 1, 1)));
+  const res = [];
+  for (let i = 0; i < 6; i++) {
+    if (moisDeSemaine(cle) === mois) res.push(cle);
+    cle = decalerSemaine(cle, 1);
+  }
+  return res;
+}
+function decalerMois(mois, n) {
+  const [a, m] = mois.split('-').map(Number);
+  const d = new Date(Date.UTC(a, m - 1 + n, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+const numSemaine = cle => Number(cle.split('-W')[1]);
+function plageSemaine(cle) {
+  const l = lundi(cle);
+  const d = new Date(l); d.setUTCDate(d.getUTCDate() + 6);
+  const f = x => `${x.getUTCDate()} ${MOIS_COURT[x.getUTCMonth()]}`;
+  return `${f(l)} – ${f(d)} ${d.getUTCFullYear()}`;
+}
+function libelleMois(mois) {
+  const [a, m] = mois.split('-').map(Number);
+  const nom = MOIS[m - 1];
+  return nom[0].toUpperCase() + nom.slice(1) + ' ' + a;
+}
+const semaineFichier = cle => cle.replace('-W', '-S');   // 2026-W44 -> 2026-S44
+const SEMAINE_COURANTE = cleSemaine(aujourdhui());
+
+/* =====================================================================
+   SUPABASE (API REST, table kv_store)
+   ===================================================================== */
+const CONFIG_OK = !/VOTRE/.test(SUPABASE_URL) && !/VOTRE/.test(SUPABASE_ANON_KEY);
+
+async function sb(chemin, options = {}) {
+  let rep;
+  try {
+    rep = await fetch(`${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/${chemin}`, {
+      ...options,
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+      },
+    });
+  } catch {
+    throw new Error('Connexion au serveur impossible. Vérifiez votre connexion internet puis réessayez.');
+  }
+  if (!rep.ok) {
+    let detail = '';
+    try { detail = (await rep.json()).message || ''; } catch { /* corps vide */ }
+    if (rep.status === 401 || rep.status === 403) throw new Error("Accès refusé par Supabase : vérifiez la clé « anon » et les règles RLS de la table kv_store.");
+    if (rep.status === 404 || /kv_store/.test(detail)) throw new Error("Table kv_store introuvable dans Supabase : exécutez le script SQL d'installation.");
+    throw new Error(`Erreur du serveur (${rep.status})${detail ? ' : ' + detail : ''}.`);
+  }
+  const texte = await rep.text();
+  return texte ? JSON.parse(texte) : null;
+}
+async function kvGet(cle) {
+  const lignes = await sb(`kv_store?select=value&key=eq.${encodeURIComponent(cle)}`);
+  return lignes && lignes.length ? lignes[0].value : null;
+}
+async function kvSet(cle, valeur) {
+  await sb('kv_store?on_conflict=key', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({ key: cle, value: valeur }),
+  });
+}
+async function kvDel(cle) {
+  await sb(`kv_store?key=eq.${encodeURIComponent(cle)}`, { method: 'DELETE' });
+}
+// Relit la liste la plus récente avant de la modifier, pour ne pas écraser
+// un ajout fait entre-temps par un autre manager.
+async function majListe(cle, modifier) {
+  const liste = (await kvGet(cle)) || [];
+  const nouvelle = modifier(liste);
+  await kvSet(cle, nouvelle);
+  return nouvelle;
+}
+// Code propriétaire : seule son empreinte SHA-256 est stockée
+async function hacher(texte) {
+  if (!crypto?.subtle) throw new Error('Votre navigateur bloque le chiffrement : ouvrez la page en https.');
+  const tampon = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('prospection:' + texte));
+  return [...new Uint8Array(tampon)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/* =====================================================================
+   ÉTAT DE L'APPLICATION
+   ===================================================================== */
+const S = {
+  admin: null,
+  managers: [],
+  reps: [],
+  entries: {},          // idRep -> { cleSemaine -> saisie }
+  session: null,        // { role: 'owner' | 'manager' | 'rep', id }
+  semaine: SEMAINE_COURANTE,
+  mois: moisDeSemaine(SEMAINE_COURANTE),
+  filtre: 'tous',       // propriétaire : 'tous' | 'moi' | id d'un manager
+  critere: 'retours',   // classement : 'retours' | 'appels'
+  ongletConnexion: 'manager',
+  saisieModifiee: false,
+};
+
+async function chargerTout() {
+  // Une seule requête : toutes les clés "team:*"
+  const lignes = await sb('kv_store?select=key,value&key=like.team:*') || [];
+  const carte = Object.fromEntries(lignes.map(l => [l.key, l.value]));
+  S.admin = carte['team:admin'] || null;
+  S.managers = Array.isArray(carte['team:managers']) ? carte['team:managers'] : null;
+  S.reps = Array.isArray(carte['team:reps']) ? carte['team:reps'] : [];
+  S.entries = {};
+  for (const [cle, valeur] of Object.entries(carte)) {
+    if (cle.startsWith('team:entries:')) S.entries[cle.slice('team:entries:'.length)] = valeur || {};
+  }
+  // Premier lancement : Claire est créée d'office
+  if (S.managers === null) {
+    S.managers = [{ id: 'm_claire', name: 'Claire', code: CODE_CLAIRE_DEFAUT, creeLe: new Date().toISOString() }];
+    await kvSet('team:managers', S.managers);
+  }
+}
+
+/* --- Calculs --- */
+function zero() { return Object.fromEntries(CHAMPS.map(c => [c.k, 0])); }
+function somme(liste) {
+  const s = zero();
+  for (const e of liste) if (e) for (const c of CHAMPS) s[c.k] += Number(e[c.k]) || 0;
+  return s;
+}
+function avecTaux(e) {
+  return { ...e, tDecroche: parSur(e.decroches, e.appels), tRetour: parSur(e.retours, e.appels), tRefus: parSur(e.refus, e.appels) };
+}
+const saisieSemaine = (idRep, semaine) => S.entries[idRep]?.[semaine] || null;
+const totalMois = (idRep, mois) => somme(semainesDuMois(mois).map(s => saisieSemaine(idRep, s)));
+
+function nomManager(id) {
+  if (id === OWNER) return 'Propriétaire';
+  return S.managers.find(m => m.id === id)?.name || 'Propriétaire';
+}
+// Téléprospecteurs que la personne connectée a le droit de voir
+function repsVisibles() {
+  const s = S.session;
+  let liste = S.reps;
+  if (s.role === 'manager') liste = S.reps.filter(r => r.managerId === s.id);
+  else if (S.filtre === 'moi') liste = S.reps.filter(r => r.managerId === OWNER || !S.managers.some(m => m.id === r.managerId));
+  else if (S.filtre !== 'tous') liste = S.reps.filter(r => r.managerId === S.filtre);
+  return [...liste].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+}
+function niveauSignal(t) {
+  if (t == null) return 0;
+  return 1 + SEUILS_DECROCHE.filter(s => t >= s).length;
+}
+function signal(t) {
+  const n = niveauSignal(t);
+  const titre = t == null ? 'Pas de données' : `Taux de décroché : ${fmtPct(t)}`;
+  return `<span class="signal n${n}" title="${titre}" aria-label="${titre}">${[1, 2, 3, 4].map(i => `<i class="${i <= n ? 'on' : ''}"></i>`).join('')}</span>`;
+}
+
+/* =====================================================================
+   SESSION
+   ===================================================================== */
+function sauverSession() {
+  try { sessionStorage.setItem(CLE_SESSION, JSON.stringify(S.session)); } catch { /* stockage indisponible */ }
+}
+function lireSession() {
+  try { return JSON.parse(sessionStorage.getItem(CLE_SESSION) || 'null'); } catch { return null; }
+}
+function sessionValide(s) {
+  if (!s) return false;
+  if (s.role === 'owner') return true;
+  if (s.role === 'manager') return S.managers.some(m => m.id === s.id);
+  if (s.role === 'rep') return S.reps.some(r => r.id === s.id);
+  return false;
+}
+function deconnecter() {
+  S.session = null;
+  S.saisieModifiee = false;
+  try { sessionStorage.removeItem(CLE_SESSION); } catch { /* rien */ }
+  afficherConnexion();
+}
+function infosSession() {
+  const s = S.session;
+  if (s.role === 'owner') return { nom: 'Propriétaire', role: 'Accès complet' };
+  if (s.role === 'manager') return { nom: S.managers.find(m => m.id === s.id)?.name || 'Manager', role: 'Manager' };
+  return { nom: S.reps.find(r => r.id === s.id)?.name || '', role: 'Téléprospecteur' };
+}
+
+/* =====================================================================
+   INTERFACE COMMUNE : écrans, toasts, modales
+   ===================================================================== */
+function afficher(id) {
+  for (const e of ['ecran-chargement', 'ecran-config', 'ecran-setup', 'ecran-connexion', 'ecran-app']) $(e).hidden = e !== id;
+}
+
+function toast(message, type = 'ok') {
+  const t = document.createElement('div');
+  t.className = `toast toast-${type}`;
+  t.setAttribute('role', type === 'erreur' ? 'alert' : 'status');
+  t.innerHTML = `${ic(type === 'ok' ? 'valide' : 'alerte')}<span>${esc(message)}</span>`;
+  $('toasts').appendChild(t);
+  requestAnimationFrame(() => t.classList.add('visible'));
+  setTimeout(() => { t.classList.remove('visible'); setTimeout(() => t.remove(), 300); }, type === 'erreur' ? 5500 : 3200);
+}
+
+// Exécute une action asynchrone avec état "chargement" sur le bouton et toast d'erreur
+async function tenter(bouton, action) {
+  if (bouton) { bouton.disabled = true; bouton.classList.add('charge'); }
+  try { await action(); }
+  catch (e) { console.error(e); toast(e.message || 'Une erreur est survenue.', 'erreur'); }
+  finally { if (bouton && bouton.isConnected) { bouton.disabled = false; bouton.classList.remove('charge'); } }
+}
+
+/**
+ * Modale générique. `valider(donnees)` peut lever une erreur : elle s'affiche
+ * dans la modale sans la fermer. Renvoie les données saisies, ou null si annulé.
+ */
+function modale({ titre, html, ok = 'Valider', danger = false, valider }) {
+  return new Promise(resoudre => {
+    const fond = document.createElement('div');
+    fond.className = 'modal-fond';
+    fond.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-titre">
+        <h3 id="modal-titre">${esc(titre)}</h3>
+        <form class="modal-corps" novalidate>
+          ${html}
+          <p class="form-erreur" hidden></p>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-ghost" data-annuler>Annuler</button>
+            <button type="submit" class="btn ${danger ? 'btn-danger' : 'btn-primary'}">${esc(ok)}</button>
+          </div>
+        </form>
+      </div>`;
+    document.body.appendChild(fond);
+    const form = fond.querySelector('form');
+    const erreur = fond.querySelector('.form-erreur');
+    const btnOk = form.querySelector('[type=submit]');
+    const precedent = document.activeElement;
+
+    const fermer = valeur => {
+      document.removeEventListener('keydown', surTouche);
+      fond.classList.add('sortie');
+      setTimeout(() => fond.remove(), 150);
+      if (precedent && precedent.focus) precedent.focus();
+      resoudre(valeur);
+    };
+    const surTouche = e => { if (e.key === 'Escape') fermer(null); };
+    document.addEventListener('keydown', surTouche);
+    fond.addEventListener('mousedown', e => { if (e.target === fond) fermer(null); });
+    fond.querySelector('[data-annuler]').addEventListener('click', () => fermer(null));
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      erreur.hidden = true;
+      const donnees = Object.fromEntries(new FormData(form));
+      btnOk.disabled = true; btnOk.classList.add('charge');
+      try {
+        if (valider) await valider(donnees);
+        fermer(donnees);
+      } catch (x) {
+        erreur.innerHTML = `${ic('alerte')}<span>${esc(x.message)}</span>`;
+        erreur.hidden = false;
+        btnOk.disabled = false; btnOk.classList.remove('charge');
+      }
+    });
+    setTimeout(() => (form.querySelector('input:not([type=radio]),select') || btnOk).focus(), 40);
+  });
+}
+const confirmer = (titre, texte, ok = 'Supprimer') =>
+  modale({ titre, html: `<p>${texte}</p>`, ok, danger: true });
+
+// Champ mot de passe avec icône œil
+function champMdp(nom, libelle, { auto = 'current-password', valeur = '', placeholder = '' } = {}) {
+  return `<label class="champ"><span>${libelle}</span>
+    <div class="mdp">
+      <input type="password" name="${nom}" value="${esc(valeur)}" placeholder="${esc(placeholder)}" autocomplete="${auto}" required>
+      <button type="button" class="oeil" data-oeil aria-label="Afficher la saisie">${ic('oeil')}</button>
+    </div></label>`;
+}
+// Secret masqué par défaut, révélable par une icône œil (côté manager)
+function secret(valeur, libelle) {
+  return `<span class="secret-zone"><span class="secret" data-secret="${esc(valeur)}">••••••••</span>
+    <button type="button" class="btn-icone" data-reveler aria-label="Afficher ${esc(libelle)}" title="Afficher / masquer">${ic('oeil')}</button></span>`;
+}
+
+// Délégation globale : œil des champs et révélation des secrets
+document.addEventListener('click', e => {
+  const oeil = e.target.closest('[data-oeil]');
+  if (oeil) {
+    const input = oeil.parentElement.querySelector('input');
+    const montrer = input.type === 'password';
+    input.type = montrer ? 'text' : 'password';
+    oeil.innerHTML = ic(montrer ? 'oeilBarre' : 'oeil');
+    oeil.setAttribute('aria-label', montrer ? 'Masquer la saisie' : 'Afficher la saisie');
+    return;
+  }
+  const rev = e.target.closest('[data-reveler]');
+  if (rev) {
+    const s = rev.parentElement.querySelector('.secret');
+    const visible = s.dataset.visible === '1';
+    s.textContent = visible ? '••••••••' : s.dataset.secret;
+    s.dataset.visible = visible ? '0' : '1';
+    rev.innerHTML = ic(visible ? 'oeil' : 'oeilBarre');
+  }
+});
+
+/* =====================================================================
+   ÉCRAN : CONFIGURATION SUPABASE MANQUANTE
+   ===================================================================== */
+function afficherConfigManquante() {
+  $('ecran-config').innerHTML = `
+    <div class="carte-auth simple apparait"><div class="auth-form">
+      <div class="logo-ligne"><img src="${logoUrl()}" alt=""><span>${esc(TITRE_APPLI)}</span></div>
+      <div><h2>Connexion à Supabase à configurer</h2>
+      <p class="intro">Renseignez l'URL du projet et la clé « anon public » en haut du script du fichier index.html, puis redéployez.</p></div>
+      <div class="code-config">const SUPABASE_URL = "https://xxxx.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOi…";</div>
+      <p class="note">Le script SQL de création de la table kv_store figure en commentaire en haut du fichier.</p>
+    </div></div>`;
+  afficher('ecran-config');
+}
+
+/* =====================================================================
+   ÉCRAN : PREMIÈRE UTILISATION (code propriétaire)
+   ===================================================================== */
+function afficherSetup() {
+  $('ecran-setup').innerHTML = `
+    <div class="carte-auth apparait">
+      ${panneauMarque('Bienvenue', "Définissez le code propriétaire : il donne accès à toute l'équipe et à la gestion des managers.")}
+      <form class="auth-form" id="form-setup" novalidate>
+        <div><h2>Première utilisation</h2><p class="intro">Choisissez un code d'au moins 6 caractères. Notez-le : il n'est stocké que sous forme chiffrée et ne peut pas être révélé.</p></div>
+        <div class="pile">
+          ${champMdp('code', 'Code propriétaire', { auto: 'new-password' })}
+          ${champMdp('code2', 'Confirmer le code', { auto: 'new-password' })}
+        </div>
+        <p class="form-erreur" hidden></p>
+        <button class="btn btn-primary" type="submit">Créer l'accès propriétaire</button>
+        <p class="note">La manager Claire est déjà créée (code par défaut : ${esc(CODE_CLAIRE_DEFAUT)}), modifiable ensuite dans « Managers ».</p>
+      </form>
+    </div>`;
+  afficher('ecran-setup');
+  const form = $('form-setup');
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(form));
+    const err = form.querySelector('.form-erreur');
+    const montrer = m => { err.innerHTML = `${ic('alerte')}<span>${esc(m)}</span>`; err.hidden = false; };
+    err.hidden = true;
+    if ((d.code || '').length < 6) return montrer('Le code doit contenir au moins 6 caractères.');
+    if (d.code !== d.code2) return montrer('Les deux codes ne correspondent pas.');
+    if (S.managers.some(m => m.code === d.code)) return montrer("Ce code est déjà celui d'un manager.");
+    tenter(form.querySelector('[type=submit]'), async () => {
+      if (await kvGet('team:admin')) throw new Error('Un code propriétaire existe déjà. Rechargez la page.');
+      S.admin = { ownerHash: await hacher(d.code), creeLe: new Date().toISOString() };
+      await kvSet('team:admin', S.admin);
+      S.session = { role: 'owner', id: OWNER };
+      sauverSession();
+      toast('Accès propriétaire créé.');
+      afficherApp();
+    });
+  });
+}
+
+function panneauMarque(titre, sous) {
+  return `<div class="auth-marque">
+    <div class="logo-ligne"><img src="${logoUrl()}" alt=""><span>${esc(TITRE_APPLI)}</span></div>
+    <div><h1>${esc(titre)}</h1><p class="sous">${esc(sous)}</p></div>
+    <ul class="auth-points">
+      <li><span class="pastille">${ic('telephone')}</span>Déclaration hebdomadaire en moins d'une minute</li>
+      <li><span class="pastille">${ic('graphique')}</span>Taux de décroché, de retour et de refus en direct</li>
+      <li><span class="pastille">${ic('trophee')}</span>Classements de la semaine et du mois</li>
+    </ul>
+  </div>`;
+}
+
+/* =====================================================================
+   ÉCRAN : CONNEXION (onglets Manager / Téléprospecteur)
+   ===================================================================== */
+function afficherConnexion() {
+  const onglet = S.ongletConnexion;
+  const reps = [...S.reps].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  const formManager = `
+    <form class="pile" id="form-manager" novalidate>
+      ${champMdp('code', "Code d'accès", { placeholder: 'Code propriétaire ou manager' })}
+      <p class="form-erreur" hidden></p>
+      <button class="btn btn-primary" type="submit">Se connecter</button>
+    </form>`;
+  const formRep = reps.length ? `
+    <form class="pile" id="form-rep" novalidate>
+      <label class="champ"><span>Votre nom</span>
+        <select name="rep" required><option value="">Choisir dans la liste…</option>
+          ${reps.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')}
+        </select></label>
+      ${champMdp('mdp', 'Mot de passe')}
+      <p class="form-erreur" hidden></p>
+      <button class="btn btn-primary" type="submit">Se connecter</button>
+    </form>` : `
+    <div class="vide-etat">${ic('equipe')}<span>Aucun téléprospecteur n'a encore été créé.<br>Demandez à votre manager de vous ajouter à l'équipe.</span></div>`;
+
+  $('ecran-connexion').innerHTML = `
+    <div class="carte-auth apparait">
+      ${panneauMarque('Pilotez votre prospection téléphonique', "Chaque téléprospecteur déclare sa semaine, les managers suivent l'équipe en un coup d'œil.")}
+      <div class="auth-form">
+        <div><h2>Connexion</h2><p class="intro">Choisissez votre espace.</p></div>
+        <div class="onglets" role="tablist">
+          <button class="onglet" role="tab" aria-selected="${onglet === 'manager'}" data-onglet="manager">${ic('bouclier')}Manager</button>
+          <button class="onglet" role="tab" aria-selected="${onglet === 'rep'}" data-onglet="rep">${ic('telephone')}Téléprospecteur</button>
+        </div>
+        <div role="tabpanel">${onglet === 'manager' ? formManager : formRep}</div>
+      </div>
+    </div>`;
+  afficher('ecran-connexion');
+
+  $('ecran-connexion').querySelectorAll('[data-onglet]').forEach(b => b.addEventListener('click', () => {
+    S.ongletConnexion = b.dataset.onglet;
+    afficherConnexion();
+    $('ecran-connexion').querySelector('input:not([type=hidden]), select')?.focus();
+  }));
+
+  const erreur = (form, m) => { const e = form.querySelector('.form-erreur'); e.innerHTML = `${ic('alerte')}<span>${esc(m)}</span>`; e.hidden = false; };
+
+  $('form-manager')?.addEventListener('submit', e => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const code = new FormData(form).get('code').trim();
+    form.querySelector('.form-erreur').hidden = true;
+    if (!code) return erreur(form, "Saisissez votre code d'accès.");
+    tenter(form.querySelector('[type=submit]'), async () => {
+      await chargerTout();   // codes à jour
+      if (S.admin && (await hacher(code)) === S.admin.ownerHash) S.session = { role: 'owner', id: OWNER };
+      else {
+        const m = S.managers.find(x => x.code === code);
+        if (!m) return erreur(form, 'Code incorrect.');
+        S.session = { role: 'manager', id: m.id };
+      }
+      sauverSession();
+      afficherApp();
+    });
+  });
+
+  $('form-rep')?.addEventListener('submit', e => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const d = Object.fromEntries(new FormData(form));
+    form.querySelector('.form-erreur').hidden = true;
+    if (!d.rep) return erreur(form, 'Choisissez votre nom dans la liste.');
+    if (!d.mdp) return erreur(form, 'Saisissez votre mot de passe.');
+    tenter(form.querySelector('[type=submit]'), async () => {
+      await chargerTout();
+      const r = S.reps.find(x => x.id === d.rep);
+      if (!r) return erreur(form, "Ce compte n'existe plus. Rechargez la page.");
+      if (r.password !== d.mdp) return erreur(form, 'Mot de passe incorrect.');
+      S.session = { role: 'rep', id: r.id };
+      sauverSession();
+      afficherApp();
+    });
+  });
+}
+
+/* =====================================================================
+   APPLICATION : barre du haut et navigation par semaine
+   ===================================================================== */
+function afficherApp() {
+  S.semaine = SEMAINE_COURANTE;
+  S.mois = moisDeSemaine(S.semaine);
+  afficher('ecran-app');
+  rendre();
+}
+function rendre() {
+  rendreTopbar();
+  if (S.session.role === 'rep') rendreRep(); else rendreManager();
+}
+function rendreTopbar() {
+  const u = infosSession();
+  const suivantPossible = decalerSemaine(S.semaine, 1) <= SEMAINE_COURANTE;
+  const enCours = S.semaine === SEMAINE_COURANTE;
+  $('topbar').innerHTML = `
+    <div class="logo-ligne"><img src="${logoUrl()}" alt=""><span>${esc(TITRE_APPLI)}</span></div>
+    <nav class="nav-semaine" aria-label="Navigation par semaine">
+      <button class="btn-icone" data-nav="-1" aria-label="Semaine précédente">${ic('chevronG')}</button>
+      <button class="semaine-label" data-nav="0" title="Revenir à la semaine en cours">
+        <strong>Semaine ${numSemaine(S.semaine)}</strong>
+        <small>${enCours ? '<span class="encours">En cours</span> · ' : ''}${plageSemaine(S.semaine)}</small>
+      </button>
+      <button class="btn-icone" data-nav="1" aria-label="Semaine suivante" ${suivantPossible ? '' : 'disabled'}>${ic('chevronD')}</button>
+    </nav>
+    <div class="utilisateur">
+      <span class="avatar">${esc(initiales(u.nom))}</span>
+      <span class="qui"><strong>${esc(u.nom)}</strong><small>${esc(u.role)}</small></span>
+      <button class="btn btn-ghost btn-sm" id="btn-deconnexion">${ic('sortie')}<span>Se déconnecter</span></button>
+    </div>`;
+  $('topbar').querySelectorAll('[data-nav]').forEach(b => b.addEventListener('click', () => naviguerSemaine(Number(b.dataset.nav))));
+  $('btn-deconnexion').addEventListener('click', async () => {
+    if (S.saisieModifiee && !(await confirmer('Quitter sans enregistrer ?', 'Vos modifications de la semaine ne sont pas enregistrées.', 'Quitter'))) return;
+    deconnecter();
+  });
+}
+async function naviguerSemaine(sens) {
+  const cible = sens === 0 ? SEMAINE_COURANTE : decalerSemaine(S.semaine, sens);
+  if (cible > SEMAINE_COURANTE || cible === S.semaine) return;
+  if (S.saisieModifiee && !(await confirmer('Changer de semaine ?', 'Vos modifications ne sont pas enregistrées et seront perdues.', 'Changer de semaine'))) return;
+  S.saisieModifiee = false;
+  S.semaine = cible;
+  S.mois = moisDeSemaine(cible);
+  rendre();
+}
+
+/* =====================================================================
+   TABLEAU GÉNÉRIQUE (manager : une ligne par téléprospecteur ;
+   téléprospecteur : une ligne par semaine)
+   ===================================================================== */
+function tableau({ premiereCol, lignes, total, libelleTotal, avecSignal = false }) {
+  const cellules = d => d
+    ? CHAMPS.map((c, i) => `<td class="${i === 0 ? '' : ''}">${fmtNombre(d[c.k], c.decimal ? 2 : 0)}${c.unite ? ' ' + c.unite : ''}</td>`).join('')
+      + TAUX.map((t, i) => `<td class="taux ${i === 0 ? 'sep' : ''}">${fmtPct(d[t.k])}</td>`).join('')
+    : CHAMPS.map(() => '<td class="vide">—</td>').join('') + TAUX.map((t, i) => `<td class="vide ${i === 0 ? 'sep' : ''}">—</td>`).join('');
+  return `
+    <div class="table-defile" tabindex="0" aria-label="Tableau défilant horizontalement">
+      <table class="donnees">
+        <thead><tr>
+          <th scope="col">${esc(premiereCol)}</th>
+          ${CHAMPS.map(c => `<th scope="col" title="${esc(c.label)}">${esc(c.court)}</th>`).join('')}
+          ${TAUX.map((t, i) => `<th scope="col" class="${i === 0 ? 'sep' : ''}" title="${esc(t.label)}">${esc(t.court)}</th>`).join('')}
+          ${avecSignal ? '<th scope="col" class="sep">Perf.</th>' : ''}
+        </tr></thead>
+        <tbody>
+          ${lignes.map(l => `<tr>
+            <td>${l.entete}</td>
+            ${cellules(l.d)}
+            ${avecSignal ? `<td class="sep">${signal(l.d?.tDecroche ?? null)}</td>` : ''}
+          </tr>`).join('') || `<tr><td colspan="${CHAMPS.length + TAUX.length + 2}" style="text-align:left;font-family:var(--f-texte)" class="muted">Aucune ligne à afficher.</td></tr>`}
+        </tbody>
+        <tfoot><tr>
+          <td>${esc(libelleTotal)}</td>
+          ${cellules(total)}
+          ${avecSignal ? `<td class="sep">${signal(total.tDecroche)}</td>` : ''}
+        </tr></tfoot>
+      </table>
+    </div>`;
+}
+
+/* =====================================================================
+   ESPACE TÉLÉPROSPECTEUR
+   ===================================================================== */
+const GROUPES = [
+  { k: 'activite',  titre: 'Activité',  icone: 'horloge' },
+  { k: 'relances',  titre: 'Relances',  icone: 'envoi' },
+  { k: 'resultats', titre: 'Résultats', icone: 'cible' },
+];
+
+function rendreRep() {
+  const rep = S.reps.find(r => r.id === S.session.id);
+  const actuel = saisieSemaine(rep.id, S.semaine);
+  const valeurs = actuel || zero();
+  const prenom = rep.name.split(/\s+/)[0];
+
+  // Historique : semaine affichée + 3 précédentes
+  const semaines = [0, 1, 2, 3].map(i => decalerSemaine(S.semaine, -i));
+  const lignesHisto = semaines.map(s => {
+    const d = saisieSemaine(rep.id, s);
+    return {
+      entete: `<div class="nom-cell"><div class="nom"><strong>Semaine ${numSemaine(s)}</strong><small>${plageSemaine(s)}</small></div></div>`,
+      d: d ? avecTaux(d) : null,
+    };
+  });
+  const totalHisto = avecTaux(somme(semaines.map(s => saisieSemaine(rep.id, s))));
+
+  $('main').innerHTML = `
+    <section class="entete-page apparait">
+      <div>
+        <p class="surtitre">Ma déclaration</p>
+        <h1>Bonjour ${esc(prenom)} <span class="muted">· semaine ${numSemaine(S.semaine)}</span></h1>
+      </div>
+    </section>
+
+    <div class="saisie apparait">
+      <form class="carte" id="form-saisie" novalidate>
+        <div class="carte-tete">
+          <div><div class="titre">${ic('calendrier')}<h2>Activité de la semaine ${numSemaine(S.semaine)}</h2></div>
+          <p>${plageSemaine(S.semaine)}</p></div>
+        </div>
+        ${GROUPES.map(g => `
+          <div class="groupe">
+            <h3>${ic(g.icone)}${g.titre}</h3>
+            <div class="champs ${g.k === 'relances' ? 'quatre' : ''}">
+              ${CHAMPS.filter(c => c.groupe === g.k).map(c => `
+                <label class="champ champ-num"><span>${esc(c.label)}${c.unite ? ' (heures)' : ''}</span>
+                  <div class="${c.unite ? 'unite' : ''}" data-unite="${c.unite || ''}">
+                    <input type="number" name="${c.k}" min="0" step="${c.decimal ? '0.25' : '1'}" inputmode="${c.decimal ? 'decimal' : 'numeric'}" value="${actuel ? valeurs[c.k] : ''}" placeholder="0">
+                  </div>
+                </label>`).join('')}
+            </div>
+          </div>`).join('')}
+        <p class="form-erreur" style="margin:0 20px 16px" hidden></p>
+        <div class="barre-action">
+          <span class="etat-saisie ${actuel ? 'ok' : ''}" id="etat-saisie"><span class="point"></span><span>${actuel ? 'Enregistré le ' + new Date(actuel.majLe).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : 'Pas encore déclaré'}</span></span>
+          <button type="submit" class="btn btn-primary">${ic('valide')}Enregistrer la semaine</button>
+        </div>
+      </form>
+
+      <aside class="carte indicateurs" aria-live="polite">
+        <div class="carte-tete"><div><div class="titre">${ic('graphique')}<h2>Indicateurs</h2></div><p>Calculés en direct</p></div></div>
+        <div id="jauges"></div>
+      </aside>
+    </div>
+
+    <section class="carte apparait">
+      <div class="carte-tete">
+        <div><div class="titre">${ic('horloge')}<h2>Mes 4 dernières semaines</h2></div>
+        <p>De la semaine ${numSemaine(semaines[3])} à la semaine ${numSemaine(semaines[0])}</p></div>
+      </div>
+      ${tableau({ premiereCol: 'Semaine', lignes: lignesHisto, total: totalHisto, libelleTotal: 'Total 4 semaines' })}
+    </section>`;
+
+  const form = $('form-saisie');
+  const lire = () => Object.fromEntries(CHAMPS.map(c => [c.k, form.elements[c.k].value === '' ? 0 : Number(form.elements[c.k].value)]));
+  const majJauges = () => {
+    const d = avecTaux(lire());
+    $('jauges').innerHTML = TAUX.map(t => `
+      <div class="jauge ${t.classe}">
+        <div class="haut"><span>${esc(t.label)}</span><strong>${fmtPct(d[t.k])}</strong></div>
+        <div class="barre"><i style="width:${Math.min(100, (d[t.k] || 0) * 100)}%"></i></div>
+        <p class="formule">${fmtNombre(d[t.num])} / ${fmtNombre(d.appels)} appels</p>
+      </div>`).join('') + `
+      <div class="jauge"><div class="haut"><span>Performance</span>${signal(d.tDecroche)}</div>
+      <p class="formule" style="margin-top:0">Selon le taux de décroché</p></div>`;
+  };
+  majJauges();
+
+  form.addEventListener('input', () => {
+    S.saisieModifiee = true;
+    const etat = $('etat-saisie');
+    etat.className = 'etat-saisie modifie';
+    etat.lastElementChild.textContent = 'Modifications non enregistrées';
+    majJauges();
+  });
+
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    const err = form.querySelector('.form-erreur');
+    err.hidden = true;
+    const d = lire();
+    const probleme = (() => {
+      for (const c of CHAMPS) {
+        const v = d[c.k];
+        if (!Number.isFinite(v) || v < 0) return `« ${c.label} » doit être un nombre positif.`;
+        if (!c.decimal && !Number.isInteger(v)) return `« ${c.label} » doit être un nombre entier.`;
+      }
+      if (d.heures > 80) return 'Le temps de travail dépasse 80 heures sur la semaine : vérifiez la saisie.';
+      if (d.decroches > d.appels) return 'Le nombre de décrochés ne peut pas dépasser le nombre d\'appels.';
+      return null;
+    })();
+    if (probleme) { err.innerHTML = `${ic('alerte')}<span>${esc(probleme)}</span>`; err.hidden = false; return; }
+
+    tenter(form.querySelector('[type=submit]'), async () => {
+      const cle = 'team:entries:' + S.session.id;
+      const toutes = (await kvGet(cle)) || {};
+      toutes[S.semaine] = { ...d, majLe: new Date().toISOString() };
+      await kvSet(cle, toutes);
+      S.entries[S.session.id] = toutes;
+      S.saisieModifiee = false;
+      toast(`Semaine ${numSemaine(S.semaine)} enregistrée.`);
+      rendreRep();
+    });
+  });
+}
+
+/* =====================================================================
+   ESPACE MANAGER / PROPRIÉTAIRE
+   ===================================================================== */
+function rendreManager() {
+  const proprio = S.session.role === 'owner';
+  const reps = repsVisibles();
+  const avecManager = proprio && S.filtre === 'tous' && S.managers.length > 0;
+
+  const lignes = reps.map(r => {
+    const d = saisieSemaine(r.id, S.semaine);
+    return {
+      entete: `<div class="nom-cell"><span class="avatar">${esc(initiales(r.name))}</span><div class="nom"><strong>${esc(r.name)}</strong>
+        ${d ? (avecManager ? `<small>${esc(nomManager(r.managerId))}</small>` : '') : '<small><span class="puce puce-attente">Non déclaré</span></small>'}</div></div>`,
+      d: d ? avecTaux(d) : null,
+    };
+  });
+  const total = avecTaux(somme(reps.map(r => saisieSemaine(r.id, S.semaine))));
+  const declares = reps.filter(r => saisieSemaine(r.id, S.semaine)).length;
+
+  const filtre = proprio ? `
+    <label class="filtre"><span>Afficher les téléprospecteurs de</span>
+      <select id="filtre-manager">
+        <option value="tous" ${S.filtre === 'tous' ? 'selected' : ''}>Tout le monde</option>
+        <option value="moi" ${S.filtre === 'moi' ? 'selected' : ''}>Moi</option>
+        ${S.managers.map(m => `<option value="${esc(m.id)}" ${S.filtre === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}
+      </select></label>` : '';
+
+  $('main').innerHTML = `
+    <section class="entete-page apparait">
+      <div>
+        <p class="surtitre">${proprio ? "Tableau de bord · vue d'ensemble" : 'Tableau de bord · mon équipe'}</p>
+        <h1>Semaine ${numSemaine(S.semaine)} <span class="muted">· ${plageSemaine(S.semaine)}</span></h1>
+      </div>
+      <div class="actions-page">
+        ${filtre}
+        <button class="btn btn-ghost" data-action="actualiser" title="Recharger les dernières déclarations">${ic('actualiser')}<span>Actualiser</span></button>
+        <button class="btn btn-primary" data-action="exporter">${ic('telecharger')}Exporter vers Excel</button>
+      </div>
+    </section>
+
+    <section class="kpis apparait">
+      <div class="carte kpi"><span class="lib">${ic('telephone')}Appels</span><span class="val">${fmtNombre(total.appels)}</span><span class="det"><b>${fmtNombre(total.heures, 2)} h</b> de travail</span></div>
+      <div class="carte kpi"><span class="lib">${ic('graphique')}Taux de décroché</span><span class="val">${fmtPct(total.tDecroche)}</span><span class="det"><b>${fmtNombre(total.decroches)}</b> décrochés</span></div>
+      <div class="carte kpi"><span class="lib">${ic('cible')}Retours</span><span class="val">${fmtNombre(total.retours)}</span><span class="det">Taux de retour <b>${fmtPct(total.tRetour)}</b></span></div>
+      <div class="carte kpi"><span class="lib">${ic('fichier')}Déclarations</span><span class="val">${declares}<span class="muted" style="font-size:18px"> / ${reps.length}</span></span><span class="det">${reps.length - declares > 0 ? `<b>${reps.length - declares}</b> en attente` : 'Équipe complète'}</span></div>
+    </section>
+
+    <section class="carte apparait">
+      <div class="carte-tete">
+        <div><div class="titre">${ic('calendrier')}<h2>Suivi de la semaine</h2></div>
+        <p>Une ligne par téléprospecteur · indicateur de performance selon le taux de décroché</p></div>
+      </div>
+      ${tableau({ premiereCol: 'Téléprospecteur', lignes, total, libelleTotal: 'Total équipe', avecSignal: true })}
+    </section>
+
+    <div class="grille-2 apparait">
+      <section class="carte">
+        <div class="carte-tete">
+          <div><div class="titre">${ic('trophee')}<h2>Classement de la semaine</h2></div><p>Semaine ${numSemaine(S.semaine)}</p></div>
+          ${segmentCritere()}
+        </div>
+        <div class="carte-corps">${classement(reps, r => saisieSemaine(r.id, S.semaine) || zero())}</div>
+      </section>
+      <section class="carte">
+        <div class="carte-tete">
+          <div><div class="titre">${ic('trophee')}<h2>Classement du mois</h2></div>
+            <div class="mini-nav">
+              <button class="btn-icone" data-action="mois" data-sens="-1" aria-label="Mois précédent">${ic('chevronG')}</button>
+              <strong>${libelleMois(S.mois)}</strong>
+              <button class="btn-icone" data-action="mois" data-sens="1" aria-label="Mois suivant" ${S.mois >= moisDeSemaine(SEMAINE_COURANTE) ? 'disabled' : ''}>${ic('chevronD')}</button>
+            </div>
+          </div>
+          ${segmentCritere()}
+        </div>
+        <div class="carte-corps">${classement(reps, r => totalMois(r.id, S.mois))}</div>
+      </section>
+    </div>
+
+    <div class="${proprio ? 'grille-2' : ''} apparait">
+      ${blocEquipe(reps)}
+      ${proprio ? blocManagers() : ''}
+    </div>`;
+
+  // Animation des barres de classement
+  requestAnimationFrame(() => $('main').querySelectorAll('.barre > i[data-w]').forEach(i => { i.style.width = i.dataset.w; }));
+
+  $('filtre-manager')?.addEventListener('change', e => { S.filtre = e.target.value; rendreManager(); });
+}
+
+function segmentCritere() {
+  return `<div class="segment" role="group" aria-label="Critère de classement">
+    <button data-action="critere" data-critere="retours" aria-pressed="${S.critere === 'retours'}">Retours</button>
+    <button data-action="critere" data-critere="appels" aria-pressed="${S.critere === 'appels'}">Appels</button>
+  </div>`;
+}
+
+function classement(reps, donnees) {
+  const items = reps.map(r => ({ r, v: Number(donnees(r)[S.critere]) || 0 }))
+    .sort((a, b) => b.v - a.v || a.r.name.localeCompare(b.r.name, 'fr'));
+  if (!items.length || items.every(i => i.v === 0)) {
+    return `<div class="vide-etat">${ic('trophee')}<span>Pas encore de ${S.critere === 'retours' ? 'retours' : 'appels'} sur cette période.</span></div>`;
+  }
+  const max = Math.max(...items.map(i => i.v));
+  return `<ol class="classement">${items.map((i, n) => `
+    <li>
+      <span class="rang">${n + 1}</span>
+      <div><div class="barre-nom"><span>${esc(i.r.name)}</span></div>
+        <div class="barre"><i data-w="${max ? (i.v / max) * 100 : 0}%"></i></div></div>
+      <span class="valeur">${fmtNombre(i.v)}</span>
+    </li>`).join('')}</ol>`;
+}
+
+function blocEquipe(reps) {
+  const proprio = S.session.role === 'owner';
+  const choixManager = proprio ? `
+    <label class="champ"><span>Rattacher à</span>
+      <select name="managerId">
+        <option value="${OWNER}">Moi (propriétaire)</option>
+        ${S.managers.map(m => `<option value="${esc(m.id)}" ${S.filtre === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}
+      </select></label>` : '';
+  return `
+    <section class="carte">
+      <div class="carte-tete">
+        <div><div class="titre">${ic('equipe')}<h2>Mon équipe</h2></div>
+        <p>${reps.length} téléprospecteur${reps.length > 1 ? 's' : ''}${proprio && S.filtre !== 'tous' ? ' (filtre actif)' : ''}</p></div>
+      </div>
+      <div class="carte-corps">
+        <form class="form-ligne ${proprio ? 'trois' : ''}" id="form-ajout-rep" novalidate>
+          <label class="champ"><span>Nom</span><input name="nom" autocomplete="off" placeholder="Prénom Nom" required></label>
+          ${champMdp('mdp', 'Mot de passe', { auto: 'new-password' })}
+          ${choixManager}
+          <button class="btn btn-primary" type="submit" data-action="ajouter-rep">${ic('plus')}Ajouter</button>
+        </form>
+        ${reps.length ? `<ul class="liste">${reps.map(r => `
+          <li>
+            <span class="avatar">${esc(initiales(r.name))}</span>
+            <div class="infos"><strong>${esc(r.name)}</strong>
+              <small>${proprio ? 'Manager : ' + esc(nomManager(r.managerId)) : 'Ajouté le ' + new Date(r.creeLe).toLocaleDateString('fr-FR')}</small></div>
+            ${secret(r.password, 'le mot de passe de ' + r.name)}
+            <button class="btn-icone" data-action="modifier-rep" data-id="${esc(r.id)}" aria-label="Modifier ${esc(r.name)}" title="Modifier">${ic('crayon')}</button>
+            <button class="btn-icone danger" data-action="supprimer-rep" data-id="${esc(r.id)}" aria-label="Supprimer ${esc(r.name)}" title="Supprimer">${ic('corbeille')}</button>
+          </li>`).join('')}</ul>`
+        : `<div class="vide-etat">${ic('equipe')}<span>Ajoutez votre premier téléprospecteur avec le formulaire ci-dessus.</span></div>`}
+      </div>
+    </section>`;
+}
+
+function blocManagers() {
+  const compte = id => S.reps.filter(r => r.managerId === id).length;
+  return `
+    <section class="carte">
+      <div class="carte-tete">
+        <div><div class="titre">${ic('bouclier')}<h2>Managers</h2></div>
+        <p>Chaque manager ne voit et ne gère que ses téléprospecteurs</p></div>
+      </div>
+      <div class="carte-corps">
+        <form class="form-ligne" id="form-ajout-manager" novalidate>
+          <label class="champ"><span>Nom</span><input name="nom" autocomplete="off" placeholder="Prénom" required></label>
+          ${champMdp('code', "Code d'accès", { auto: 'new-password' })}
+          <button class="btn btn-primary" type="submit">${ic('plus')}Ajouter</button>
+        </form>
+        ${S.managers.length ? `<ul class="liste">${S.managers.map(m => `
+          <li>
+            <span class="avatar">${esc(initiales(m.name))}</span>
+            <div class="infos"><strong>${esc(m.name)}</strong><small>${compte(m.id)} téléprospecteur${compte(m.id) > 1 ? 's' : ''}</small></div>
+            ${secret(m.code, "le code d'accès de " + m.name)}
+            <button class="btn-icone" data-action="modifier-manager" data-id="${esc(m.id)}" aria-label="Modifier ${esc(m.name)}" title="Modifier">${ic('crayon')}</button>
+            <button class="btn-icone danger" data-action="supprimer-manager" data-id="${esc(m.id)}" aria-label="Supprimer ${esc(m.name)}" title="Supprimer">${ic('corbeille')}</button>
+          </li>`).join('')}</ul>`
+        : `<div class="vide-etat">${ic('bouclier')}<span>Aucun manager secondaire.</span></div>`}
+      </div>
+      <div class="pied-carte">
+        <span class="note">Code propriétaire stocké chiffré.</span>
+        <button class="lien" data-action="code-proprio">${ic('cle')}Changer le code propriétaire</button>
+      </div>
+    </section>`;
+}
+
+/* --- Vérifications des codes et mots de passe --- */
+async function verifierCodeManager(code, idIgnore = null) {
+  if (code.length < 4) throw new Error("Le code d'accès doit contenir au moins 4 caractères.");
+  if (S.managers.some(m => m.code === code && m.id !== idIgnore)) throw new Error('Ce code est déjà utilisé par un autre manager.');
+  if (S.admin && (await hacher(code)) === S.admin.ownerHash) throw new Error('Ce code est celui du propriétaire.');
+}
+function verifierNomRep(nom, idIgnore = null) {
+  if (!nom) throw new Error('Indiquez le nom du téléprospecteur.');
+  if (S.reps.some(r => normaliser(r.name) === normaliser(nom) && r.id !== idIgnore)) throw new Error('Un téléprospecteur porte déjà ce nom.');
+}
+// Un manager secondaire ne peut agir que sur ses propres téléprospecteurs
+function repAutorise(id) {
+  const r = S.reps.find(x => x.id === id);
+  if (!r) throw new Error("Ce téléprospecteur n'existe plus. Actualisez la page.");
+  if (S.session.role === 'manager' && r.managerId !== S.session.id) throw new Error("Ce téléprospecteur n'appartient pas à votre équipe.");
+  return r;
+}
+
+/* --- Actions du tableau de bord (délégation) --- */
+$('main').addEventListener('click', async e => {
+  const b = e.target.closest('[data-action]');
+  if (!b || S.session?.role === 'rep') return;
+  const action = b.dataset.action;
+
+  if (action === 'critere') { S.critere = b.dataset.critere; rendreManager(); return; }
+  if (action === 'mois') { S.mois = decalerMois(S.mois, Number(b.dataset.sens)); rendreManager(); return; }
+  if (action === 'actualiser') {
+    return tenter(b, async () => {
+      await chargerTout();
+      if (!sessionValide(S.session)) { toast('Votre accès a été supprimé.', 'erreur'); return deconnecter(); }
+      rendreManager();
+      toast('Données à jour.');
+    });
+  }
+  if (action === 'exporter') return ouvrirExport();
+
+  if (action === 'modifier-rep') {
+    let r;
+    try { r = repAutorise(b.dataset.id); } catch (x) { return toast(x.message, 'erreur'); }
+    const proprio = S.session.role === 'owner';
+    await modale({
+      titre: `Modifier ${r.name}`,
+      ok: 'Enregistrer',
+      html: `
+        <label class="champ"><span>Nom</span><input name="nom" value="${esc(r.name)}" required></label>
+        ${champMdp('mdp', 'Mot de passe', { auto: 'new-password', valeur: r.password })}
+        ${proprio ? `<label class="champ"><span>Rattacher à</span><select name="managerId">
+          <option value="${OWNER}" ${r.managerId === OWNER ? 'selected' : ''}>Moi (propriétaire)</option>
+          ${S.managers.map(m => `<option value="${esc(m.id)}" ${r.managerId === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}
+        </select></label>` : ''}`,
+      valider: async d => {
+        const nom = d.nom.trim();
+        verifierNomRep(nom, r.id);
+        if (d.mdp.length < 4) throw new Error('Le mot de passe doit contenir au moins 4 caractères.');
+        S.reps = await majListe('team:reps', l => l.map(x => x.id === r.id
+          ? { ...x, name: nom, password: d.mdp, managerId: proprio ? d.managerId : x.managerId } : x));
+        toast('Téléprospecteur mis à jour.');
+        rendreManager();
+      },
+    });
+    return;
+  }
+
+  if (action === 'supprimer-rep') {
+    let r;
+    try { r = repAutorise(b.dataset.id); } catch (x) { return toast(x.message, 'erreur'); }
+    if (!(await confirmer(`Supprimer ${r.name} ?`, `Son accès et tout son historique de déclarations seront définitivement supprimés.`))) return;
+    return tenter(null, async () => {
+      S.reps = await majListe('team:reps', l => l.filter(x => x.id !== r.id));
+      await kvDel('team:entries:' + r.id);
+      delete S.entries[r.id];
+      toast(`${r.name} a été supprimé.`);
+      rendreManager();
+    });
+  }
+
+  if (S.session.role !== 'owner') return;
+
+  if (action === 'modifier-manager') {
+    const m = S.managers.find(x => x.id === b.dataset.id);
+    if (!m) return;
+    await modale({
+      titre: `Modifier ${m.name}`,
+      ok: 'Enregistrer',
+      html: `<label class="champ"><span>Nom</span><input name="nom" value="${esc(m.name)}" required></label>
+        ${champMdp('code', "Code d'accès", { auto: 'new-password', valeur: m.code })}`,
+      valider: async d => {
+        const nom = d.nom.trim();
+        if (!nom) throw new Error('Indiquez un nom.');
+        await verifierCodeManager(d.code, m.id);
+        S.managers = await majListe('team:managers', l => l.map(x => x.id === m.id ? { ...x, name: nom, code: d.code } : x));
+        toast('Manager mis à jour.');
+        rendreManager();
+      },
+    });
+    return;
+  }
+
+  if (action === 'supprimer-manager') {
+    const m = S.managers.find(x => x.id === b.dataset.id);
+    if (!m) return;
+    const n = S.reps.filter(r => r.managerId === m.id).length;
+    if (!(await confirmer(`Supprimer l'accès de ${m.name} ?`,
+      n ? `Ses ${n} téléprospecteur${n > 1 ? 's' : ''} vous seront rattachés, avec leur historique.` : "Ce manager n'a aucun téléprospecteur."))) return;
+    return tenter(null, async () => {
+      S.reps = await majListe('team:reps', l => l.map(r => r.managerId === m.id ? { ...r, managerId: OWNER } : r));
+      S.managers = await majListe('team:managers', l => l.filter(x => x.id !== m.id));
+      if (S.filtre === m.id) S.filtre = 'tous';
+      toast(`Accès de ${m.name} supprimé.`);
+      rendreManager();
+    });
+  }
+
+  if (action === 'code-proprio') {
+    await modale({
+      titre: 'Changer le code propriétaire',
+      ok: 'Changer le code',
+      html: `${champMdp('actuel', 'Code actuel')}
+        ${champMdp('code', 'Nouveau code', { auto: 'new-password' })}
+        ${champMdp('code2', 'Confirmer le nouveau code', { auto: 'new-password' })}`,
+      valider: async d => {
+        if ((await hacher(d.actuel)) !== S.admin.ownerHash) throw new Error('Le code actuel est incorrect.');
+        if (d.code.length < 6) throw new Error('Le nouveau code doit contenir au moins 6 caractères.');
+        if (d.code !== d.code2) throw new Error('Les deux codes ne correspondent pas.');
+        if (S.managers.some(m => m.code === d.code)) throw new Error("Ce code est déjà celui d'un manager.");
+        S.admin = { ...S.admin, ownerHash: await hacher(d.code), majLe: new Date().toISOString() };
+        await kvSet('team:admin', S.admin);
+        toast('Code propriétaire modifié.');
+      },
+    });
+  }
+});
+
+/* --- Formulaires d'ajout (délégation sur submit) --- */
+$('main').addEventListener('submit', e => {
+  const form = e.target;
+  if (form.id !== 'form-ajout-rep' && form.id !== 'form-ajout-manager') return;
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(form));
+  const nom = (d.nom || '').trim();
+
+  tenter(form.querySelector('[type=submit]'), async () => {
+    if (form.id === 'form-ajout-rep') {
+      verifierNomRep(nom);
+      if ((d.mdp || '').length < 4) throw new Error('Le mot de passe doit contenir au moins 4 caractères.');
+      const managerId = S.session.role === 'owner' ? (d.managerId || OWNER) : S.session.id;
+      S.reps = await majListe('team:reps', l => {
+        if (l.some(r => normaliser(r.name) === normaliser(nom))) throw new Error('Un téléprospecteur porte déjà ce nom.');
+        return [...l, { id: uid('r'), name: nom, password: d.mdp, managerId, creeLe: new Date().toISOString() }];
+      });
+      toast(`${nom} a rejoint l'équipe.`);
+    } else {
+      if (!nom) throw new Error('Indiquez le nom du manager.');
+      await verifierCodeManager(d.code || '');
+      S.managers = await majListe('team:managers', l => [...l, { id: uid('m'), name: nom, code: d.code, creeLe: new Date().toISOString() }]);
+      toast(`Accès manager créé pour ${nom}.`);
+    }
+    rendreManager();
+  });
+});
+
+/* =====================================================================
+   EXPORT EXCEL (SheetJS)
+   ===================================================================== */
+async function ouvrirExport() {
+  const reps = repsVisibles();
+  if (!reps.length) return toast("Aucun téléprospecteur à exporter.", 'erreur');
+  await modale({
+    titre: 'Exporter vers Excel',
+    ok: 'Télécharger le fichier',
+    html: `
+      <fieldset class="choix"><legend>Période</legend>
+        <label class="option"><input type="radio" name="periode" value="semaine" checked>
+          <span><strong>Semaine affichée · S${numSemaine(S.semaine)}</strong><small>${plageSemaine(S.semaine)}</small></span></label>
+        <label class="option"><input type="radio" name="periode" value="mois">
+          <span><strong>Mois affiché · ${libelleMois(S.mois)}</strong><small>${semainesDuMois(S.mois).length} semaines, détail par semaine inclus</small></span></label>
+      </fieldset>
+      <label class="champ"><span>Portée</span>
+        <select name="portee">
+          <option value="equipe">Toute l'équipe (${reps.length} téléprospecteur${reps.length > 1 ? 's' : ''})</option>
+          ${reps.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')}
+        </select></label>`,
+    valider: async d => exporterExcel(d.periode, d.portee),
+  });
+}
+
+function exporterExcel(periode, portee) {
+  if (!window.XLSX) throw new Error("La librairie Excel n'a pas pu être chargée. Vérifiez votre connexion puis rechargez la page.");
+  const reps = repsVisibles();   // un manager secondaire ne voit que les siens
+  const equipe = portee === 'equipe';
+  const repSeul = equipe ? null : reps.find(r => r.id === portee);
+  if (!equipe && !repSeul) throw new Error("Ce téléprospecteur n'est pas dans votre périmètre.");
+
+  const semaines = periode === 'semaine' ? [S.semaine] : semainesDuMois(S.mois);
+  const libPeriode = periode === 'semaine'
+    ? `Semaine ${numSemaine(S.semaine)} (${plageSemaine(S.semaine)})`
+    : `${libelleMois(S.mois)} (semaines ${semaines.map(numSemaine).join(', ')})`;
+  const codePeriode = periode === 'semaine' ? semaineFichier(S.semaine) : S.mois;
+
+  const colsChiffres = CHAMPS.map(c => c.label + (c.unite ? ' (h)' : ''));
+  const colsTaux = TAUX.map(t => t.label);
+  const valeurs = e => {
+    const d = avecTaux(e);
+    return [...CHAMPS.map(c => d[c.k]), ...TAUX.map(t => d[t.k] ?? '')];
+  };
+  const wb = XLSX.utils.book_new();
+
+  // Construit une feuille : titre, sous-titre, en-têtes, lignes, total
+  const feuille = (titre, enTetes, lignes, total) => {
+    const aoa = [[titre], [libPeriode + ' · exporté le ' + new Date().toLocaleDateString('fr-FR')], [], enTetes, ...lignes, total];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const debutTaux = enTetes.length - TAUX.length;
+    for (let r = 4; r < aoa.length; r++) {
+      for (let c = debutTaux; c < enTetes.length; c++) {
+        const cell = ws[XLSX.utils.encode_cell({ r, c })];
+        if (cell && typeof cell.v === 'number') cell.z = '0.0%';
+      }
+      const h = ws[XLSX.utils.encode_cell({ r, c: enTetes.indexOf(colsChiffres[0]) })];
+      if (h && typeof h.v === 'number') h.z = '0.00';
+    }
+    ws['!cols'] = enTetes.map((h, i) => ({ wch: i === 0 ? 28 : Math.max(11, h.length + 2) }));
+    ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 3, c: 0 }, e: { r: 3 + lignes.length, c: enTetes.length - 1 } }) };
+    return ws;
+  };
+
+  let nomFichier;
+  if (equipe) {
+    const nomEquipe = S.session.role === 'manager'
+      ? 'equipe-' + slug(infosSession().nom)
+      : (S.filtre === 'tous' ? 'equipe' : 'equipe-' + slug(S.filtre === 'moi' ? 'proprietaire' : nomManager(S.filtre)));
+    // Récapitulatif : une ligne par téléprospecteur
+    const enTetes = ['Téléprospecteur', 'Manager', ...colsChiffres, ...colsTaux];
+    const lignes = reps.map(r => [r.name, nomManager(r.managerId), ...valeurs(somme(semaines.map(s => saisieSemaine(r.id, s))))]);
+    const total = ['Total équipe', '', ...valeurs(somme(reps.flatMap(r => semaines.map(s => saisieSemaine(r.id, s)))))];
+    XLSX.utils.book_append_sheet(wb, feuille('Prospection téléphonique · équipe', enTetes, lignes, total), 'Récapitulatif');
+
+    // Mois : détail par semaine et par téléprospecteur
+    if (periode === 'mois') {
+      const enTetesD = ['Téléprospecteur', 'Semaine', ...colsChiffres, ...colsTaux];
+      const lignesD = reps.flatMap(r => semaines.map(s => [r.name, `S${numSemaine(s)}`, ...valeurs(saisieSemaine(r.id, s) || zero())]));
+      XLSX.utils.book_append_sheet(wb, feuille('Détail par semaine', enTetesD, lignesD, total), 'Détail par semaine');
+    }
+    nomFichier = `prospection_${nomEquipe}_${codePeriode}.xlsx`;
+  } else {
+    // Un téléprospecteur : une ligne par semaine
+    const enTetes = ['Semaine', ...colsChiffres, ...colsTaux];
+    const lignes = semaines.map(s => [`S${numSemaine(s)} · ${plageSemaine(s)}`, ...valeurs(saisieSemaine(repSeul.id, s) || zero())]);
+    const total = [periode === 'semaine' ? 'Total semaine' : 'Total du mois', ...valeurs(somme(semaines.map(s => saisieSemaine(repSeul.id, s))))];
+    XLSX.utils.book_append_sheet(wb, feuille(`Prospection téléphonique · ${repSeul.name}`, enTetes, lignes, total), repSeul.name.slice(0, 31).replace(/[\\/?*[\]:]/g, ' '));
+    nomFichier = `prospection_${slug(repSeul.name)}_${codePeriode}.xlsx`;
+  }
+
+  XLSX.writeFile(wb, nomFichier);
+  toast(`Fichier ${nomFichier} téléchargé.`);
+}
+
+/* =====================================================================
+   DÉMARRAGE
+   ===================================================================== */
+window.addEventListener('beforeunload', e => {
+  if (S.saisieModifiee) { e.preventDefault(); e.returnValue = ''; }
+});
+
+async function init() {
+  appliquerLogo();
+  if (!CONFIG_OK) return afficherConfigManquante();
+  afficher('ecran-chargement');
+  try {
+    await chargerTout();
+  } catch (e) {
+    console.error(e);
+    $('ecran-config').innerHTML = `
+      <div class="carte-auth simple apparait"><div class="auth-form">
+        <div class="logo-ligne"><img src="${logoUrl()}" alt=""><span>${esc(TITRE_APPLI)}</span></div>
+        <div><h2>Impossible de charger les données</h2><p class="intro">${esc(e.message)}</p></div>
+        <button class="btn btn-primary" onclick="location.reload()">${ic('actualiser')}Réessayer</button>
+      </div></div>`;
+    return afficher('ecran-config');
+  }
+  if (!S.admin) return afficherSetup();
+  const s = lireSession();
+  if (sessionValide(s)) { S.session = s; afficherApp(); }
+  else afficherConnexion();
+}
+init();
+</script>
+</body>
+</html>
