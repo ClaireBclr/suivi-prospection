@@ -1776,7 +1776,7 @@ $('main').addEventListener('submit', e => {
    ===================================================================== */
 const VUES = [
   { k: 'tableau',    titre: 'Tableau de bord',    icone: 'graphique' },
-  { k: 'revendeurs', titre: 'Revendeurs',         icone: 'fiche' },
+  { k: 'revendeurs', titre: 'TP indépendants',         icone: 'fiche' },
   { k: 'actions',    titre: 'Actions & relances', icone: 'liste' },
   { k: 'rdv',        titre: 'Retours positifs',   icone: 'rdv' },
   { k: 'clics',      titre: 'Clics SMS',          icone: 'clic', proprio: true },
@@ -1816,7 +1816,7 @@ const kpi = (icone, lib, val, det = '') =>
   `<div class="carte kpi"><span class="lib">${ic(icone)}${lib}</span><span class="val">${val}</span><span class="det">${det}</span></div>`;
 const ligneVide = (colonnes, texte) =>
   `<tr><td colspan="${colonnes}" class="muted" style="text-align:left;font-family:var(--f-texte)">${esc(texte)}</td></tr>`;
-const nomRep = id => S.reps.find(r => r.id === id)?.name || 'Revendeur supprimé';
+const nomRep = id => S.reps.find(r => r.id === id)?.name || 'TP indépendant supprimé';
 function puceStatut(statut) {
   const s = statut || 'Actif';
   const classe = s === 'Actif' ? 'puce-ok' : s === 'Mail invalide' ? 'puce-attente' : 'puce-danger';
@@ -1839,7 +1839,7 @@ function puceRdv(statut) {
 }
 const lienRep = id => S.reps.some(r => r.id === id)
   ? `<button class="lien-nom" data-action="fiche-rep" data-id="${esc(id)}"><strong>${esc(nomRep(id))}</strong></button>`
-  : `<span class="muted">${id ? 'Revendeur supprimé' : 'Non attribué'}</span>`;
+  : `<span class="muted">${id ? 'TP indépendant supprimé' : 'Non attribué'}</span>`;
 
 /* --- Suivi CRM : actions, relances, pointage --- */
 function etatRelance(a) {
@@ -1937,7 +1937,7 @@ function vueRevendeurs() {
       <td>${etats.filter(e => e === 'retard').length}</td>
       <td>${etats.filter(e => e === 'manque').length}</td>
     </tr>`;
-  }).join('') || ligneVide(semaines.length + 5, 'Aucun revendeur dans cette sélection.');
+  }).join('') || ligneVide(semaines.length + 5, 'Aucun TP indépendant dans cette sélection.');
 
   const lignesFiches = reps.map(r => {
     const suivi = suiviRep(r.id);
@@ -1958,20 +1958,20 @@ function vueRevendeurs() {
       <td class="mono">${dt ? 'S' + numSemaine(dt) : '—'}</td>
       <td class="outils"><button class="btn-icone" data-action="modifier-rep" data-id="${esc(r.id)}" aria-label="Modifier ${esc(r.name)}" title="Modifier la fiche">${ic('crayon')}</button></td>
     </tr>`;
-  }).join('') || ligneVide(14, 'Aucun revendeur dans cette sélection.');
+  }).join('') || ligneVide(14, 'Aucun TP indépendant dans cette sélection.');
 
   return `
     <section class="entete-page apparait">
-      <div><p class="surtitre">Fiches et suivi</p><h1>Revendeurs <span class="muted">· ${reps.length}</span></h1></div>
+      <div><p class="surtitre">Fiches et suivi</p><h1>TP indépendants <span class="muted">· ${reps.length}</span></h1></div>
       <div class="actions-page">
         ${filtreHTML()}
         ${proprio ? `<button class="btn btn-ghost" data-action="importer">${ic('importer')}Importer le fichier Excel</button>` : ''}
-        <button class="btn btn-primary" data-action="nouveau-rep">${ic('plus')}Nouveau revendeur</button>
+        <button class="btn btn-primary" data-action="nouveau-rep">${ic('plus')}Nouveau TP indépendant</button>
       </div>
     </section>
 
     <section class="kpis apparait">
-      ${kpi('equipe', 'Revendeurs actifs', `${actifs}<span class="muted" style="font-size:18px"> / ${reps.length}</span>`, reps.length - actifs ? `<b>${reps.length - actifs}</b> inactif${reps.length - actifs > 1 ? 's' : ''}` : 'Tous actifs')}
+      ${kpi('equipe', 'TP indépendants actifs', `${actifs}<span class="muted" style="font-size:18px"> / ${reps.length}</span>`, reps.length - actifs ? `<b>${reps.length - actifs}</b> inactif${reps.length - actifs > 1 ? 's' : ''}` : 'Tous actifs')}
       ${kpi('alerte', 'Relances en retard', enRetard, 'Voir « Actions & relances »')}
       ${kpi('calendrier', 'Tableaux manquants', manquants, 'Sur les 10 dernières semaines')}
       ${kpi('rdv', 'RDV à traiter', rdvOuverts, 'À rappeler ou RDV fixé')}
@@ -1985,7 +1985,7 @@ function vueRevendeurs() {
       </div>
       <div class="table-defile" tabindex="0" aria-label="Pointage défilant horizontalement">
         <table class="donnees pointage">
-          <thead><tr><th scope="col">Revendeur</th><th scope="col" style="text-align:left">Statut</th>
+          <thead><tr><th scope="col">TP indépendant</th><th scope="col" style="text-align:left">Statut</th>
             ${semaines.map(s => `<th scope="col" class="centre" title="${plageSemaine(s)}">S${numSemaine(s)}</th>`).join('')}
             <th scope="col" class="sep">Reçus</th><th scope="col">En retard</th><th scope="col">Manquants</th></tr></thead>
           <tbody>${lignesPointage}</tbody>
@@ -1995,12 +1995,12 @@ function vueRevendeurs() {
 
     <section class="carte apparait">
       <div class="carte-tete">
-        <div><div class="titre">${ic('fiche')}<h2>Fiches revendeurs</h2></div>
+        <div><div class="titre">${ic('fiche')}<h2>Fiches TP indépendants</h2></div>
         <p>Cliquez sur un nom pour ouvrir sa fiche : coordonnées, chiffres cumulés et historique des échanges</p></div>
       </div>
       <div class="table-defile" tabindex="0" aria-label="Fiches défilant horizontalement">
         <table class="donnees texte">
-          <thead><tr><th>Revendeur</th><th>Statut</th><th>Téléphone</th><th>Dpt</th><th>E-mail</th><th>Signé le</th><th>Formation</th><th>Éléments</th><th>Fichier</th><th>Dernier contact</th><th>Actions</th><th>Prochaine relance</th><th>Dernier tableau</th><th></th></tr></thead>
+          <thead><tr><th>TP indépendant</th><th>Statut</th><th>Téléphone</th><th>Dpt</th><th>E-mail</th><th>Signé le</th><th>Formation</th><th>Éléments</th><th>Fichier</th><th>Dernier contact</th><th>Actions</th><th>Prochaine relance</th><th>Dernier tableau</th><th></th></tr></thead>
           <tbody>${lignesFiches}</tbody>
         </table>
       </div>
@@ -2049,7 +2049,7 @@ async function ouvrirFiche(id) {
 async function ouvrirNouveauRep() {
   const proprio = S.session.role === 'owner';
   await modale({
-    titre: 'Nouveau revendeur',
+    titre: 'Nouveau TP indépendant',
     ok: 'Créer la fiche',
     large: true,
     html: `
@@ -2062,7 +2062,7 @@ async function ouvrirNouveauRep() {
         </select></label>` : ''}
       </div>
       ${champsFiche({})}
-      <p class="note">Sans mot de passe, le revendeur ne peut pas encore se connecter pour déclarer ses chiffres.</p>`,
+      <p class="note">Sans mot de passe, le TP indépendant ne peut pas encore se connecter pour déclarer ses chiffres.</p>`,
     valider: async d => {
       const nom = d.nom.trim().replace(/\s+/g, ' ');
       verifierNomRep(nom);
@@ -2092,7 +2092,7 @@ function vueActions() {
 
   return `
     <section class="entete-page apparait">
-      <div><p class="surtitre">Suivi des revendeurs</p><h1>Actions & relances</h1></div>
+      <div><p class="surtitre">Suivi des TP indépendants</p><h1>Actions & relances</h1></div>
       <div class="actions-page">
         ${filtreHTML()}
         <button class="btn btn-primary" data-action="nouvelle-action">${ic('plus')}Nouvelle action</button>
@@ -2109,9 +2109,9 @@ function vueActions() {
     <section class="carte apparait">
       <div class="carte-tete">
         <div><div class="titre">${ic('liste')}<h2>Journal des échanges</h2></div>
-        <p>${liste.length} action${liste.length > 1 ? 's' : ''} · une relance groupée compte pour chaque revendeur signé avant sa date</p></div>
+        <p>${liste.length} action${liste.length > 1 ? 's' : ''} · une relance groupée compte pour chaque TP indépendant signé avant sa date</p></div>
         <div class="actions-page">
-          <label class="filtre"><span>Revendeur</span>
+          <label class="filtre"><span>TP indépendant</span>
             <select data-filtre="actions-rep"><option value="">Tous</option>
               ${reps.map(r => `<option value="${esc(r.id)}" ${f.rep === r.id ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}
             </select></label>
@@ -2123,7 +2123,7 @@ function vueActions() {
       </div>
       <div class="table-defile" tabindex="0" aria-label="Journal défilant horizontalement">
         <table class="donnees texte">
-          <thead><tr><th>Date</th><th>Revendeur</th><th>Type</th><th>Objet / motif</th><th>Détail / compte-rendu</th><th>Résultat</th><th>Prochaine action</th><th>Relance</th><th>Statut</th><th></th></tr></thead>
+          <thead><tr><th>Date</th><th>TP indépendant</th><th>Type</th><th>Objet / motif</th><th>Détail / compte-rendu</th><th>Résultat</th><th>Prochaine action</th><th>Relance</th><th>Statut</th><th></th></tr></thead>
           <tbody>${liste.map(a => {
             const etat = etatRelance(a);
             return `<tr class="${etat === 'retard' ? 'ligne-retard' : etat === 'jour' ? 'ligne-jour' : ''}">
@@ -2151,7 +2151,7 @@ function vueActions() {
 function formAction(a) {
   return `<div class="grille-form">
     <label class="champ"><span>Date</span><input type="date" name="date" value="${esc(a.date || AUJ)}" required></label>
-    <label class="champ"><span>Revendeur</span><select name="repId" required>
+    <label class="champ"><span>TP indépendant</span><select name="repId" required>
       <option value="">Choisir…</option>
       <option value="${TOUS}" ${a.repId === TOUS ? 'selected' : ''}>TOUS (relance groupée)</option>
       ${repsVisibles().map(r => `<option value="${esc(r.id)}" ${a.repId === r.id ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}
@@ -2175,7 +2175,7 @@ async function ouvrirAction(a = {}) {
     html: formAction(a),
     valider: async d => {
       if (!d.date) throw new Error("Indiquez la date de l'action.");
-      if (!d.repId) throw new Error('Choisissez un revendeur, ou « TOUS » pour une relance groupée.');
+      if (!d.repId) throw new Error('Choisissez un TP indépendant, ou « TOUS » pour une relance groupée.');
       if (d.repId !== TOUS) repAutorise(d.repId);
       const maintenant = new Date().toISOString();
       const action = {
@@ -2306,7 +2306,7 @@ function vueClics() {
     <form class="carte apparait" id="form-clics" novalidate>
       <div class="carte-tete">
         <div><div class="titre">${ic('clic')}<h2>Clics par semaine</h2></div>
-        <p>Saisissez le nombre total de clics sur le lien (tous revendeurs). Les SMS envoyés viennent des déclarations des téléprospecteurs.</p></div>
+        <p>Saisissez le nombre total de clics sur le lien (tous TP indépendants). Les SMS envoyés viennent des déclarations des téléprospecteurs.</p></div>
       </div>
       <div class="table-defile">
         <table class="donnees" style="min-width:560px">
@@ -2325,7 +2325,7 @@ function vueClics() {
         </table>
       </div>
       <div class="barre-action">
-        <span class="note">Taux de clic = clics ÷ SMS envoyés par tous les revendeurs la même semaine.</span>
+        <span class="note">Taux de clic = clics ÷ SMS envoyés par tous les TP indépendants la même semaine.</span>
         <button type="submit" class="btn btn-primary">${ic('valide')}Enregistrer les clics</button>
       </div>
     </form>`;
@@ -2359,13 +2359,13 @@ async function ouvrirImport() {
     titre: 'Importer le fichier Excel',
     ok: 'Importer',
     html: `
-      <p>Choisissez le classeur de suivi des télépros (<strong>Suivi_Teleprospecteurs.xlsx</strong>). Sont repris : fiches revendeurs, saisies hebdo, journal d'actions, clics SMS et retours positifs.</p>
+      <p>Choisissez le classeur de suivi des télépros (<strong>Suivi_Teleprospecteurs.xlsx</strong>). Sont repris : fiches TP indépendants, saisies hebdo, journal d'actions, clics SMS et retours positifs.</p>
       <label class="champ"><span>Fichier Excel</span><input type="file" name="fichier" accept=".xlsx,.xlsm" required></label>
-      <label class="champ"><span>Rattacher les nouveaux revendeurs à</span><select name="managerId">
+      <label class="champ"><span>Rattacher les nouveaux TP indépendants à</span><select name="managerId">
         <option value="${OWNER}">Moi (propriétaire)</option>
         ${S.managers.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('')}
       </select></label>
-      <p class="note">Rien n'est effacé et un second import ne crée pas de doublons. Les nouveaux revendeurs n'ont pas de mot de passe : définissez-le avec le crayon de leur fiche pour qu'ils puissent se connecter.</p>`,
+      <p class="note">Rien n'est effacé et un second import ne crée pas de doublons. Les nouveaux TP indépendants n'ont pas de mot de passe : définissez-le avec le crayon de leur fiche pour qu'ils puissent se connecter.</p>`,
     valider: async d => {
       if (!(d.fichier instanceof File) || !d.fichier.size) throw new Error('Choisissez le fichier Excel à importer.');
       bilan = await importerExcel(d.fichier, d.managerId || OWNER);
@@ -2425,7 +2425,7 @@ async function importerExcel(fichier, managerId) {
     }
     return l;
   });
-  bilan.push(`Revendeurs : ${crees} fiche${crees > 1 ? 's' : ''} créée${crees > 1 ? 's' : ''}, ${completes} complétée${completes > 1 ? 's' : ''}.`);
+  bilan.push(`TP indépendants : ${crees} fiche${crees > 1 ? 's' : ''} créée${crees > 1 ? 's' : ''}, ${completes} complétée${completes > 1 ? 's' : ''}.`);
   const idParNom = new Map(S.reps.map(r => [normaliser(r.name), r.id]));
 
   // 2. Saisies hebdo -> déclarations (une semaine déjà déclarée dans l'application est conservée)
@@ -2573,7 +2573,7 @@ $('main').addEventListener('click', async e => {
     });
   }
   if (action === 'supprimer-action') {
-    if (!(await confirmer('Supprimer cette action ?', 'Elle disparaîtra du journal et de la fiche du revendeur.'))) return;
+    if (!(await confirmer('Supprimer cette action ?', 'Elle disparaîtra du journal et de la fiche du TP indépendant.'))) return;
     return tenter(null, async () => {
       S.actions = await majListe('team:actions', l => l.filter(a => a.id !== b.dataset.id));
       toast('Action supprimée.');
