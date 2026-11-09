@@ -36,9 +36,15 @@
     team:admin              { ownerHash, creeLe }            code propriétaire (haché SHA-256)
     team:managers           [ { id, name, code, creeLe } ]   managers secondaires (Claire pré-créée)
     team:reps               [ { id, name, password, managerId, creeLe } ]
-    team:entries:<idRep>    { "2026-W44": { heures, appels, ... , majLe } }
+    team:entries:<idRep>    { "2026-W44": { heures, appels, ... , majLe, recuLe } }
+    team:actions            [ { id, date, repId | "TOUS", repIds, type, objet, detail, resultat, prochaine, relance, statut } ]
+    team:rdv                [ { id, date, repId, entreprise, contact, activite, cp, tel, dispo, statut, commentaire } ]
+    team:clics              { "2026-W44": nombre de clics sur le lien SMS (tous revendeurs) }
   Chaque téléprospecteur a sa propre clé de saisies : deux personnes qui enregistrent
   en même temps ne peuvent pas écraser les chiffres l'une de l'autre.
+  Les fiches revendeurs (statut, téléphone, e-mail, signature…) sont dans team:reps.
+  Le bouton « Importer le fichier Excel » (onglet Revendeurs, propriétaire) reprend
+  le classeur Suivi_Teleprospecteurs.xlsx sans rien effacer ni dupliquer.
 -->
 
 <style>
@@ -390,6 +396,69 @@ table.donnees{width:100%; border-collapse:separate; border-spacing:0; font-size:
 
 .apparait{animation:monte 280ms cubic-bezier(.2,.7,.3,1) both}
 
+/* ============ Sections de l'espace manager (CRM) ============ */
+.sous-nav{display:flex; gap:4px; padding:4px; background:var(--surface); border:1px solid var(--bord); border-radius:12px; box-shadow:var(--ombre); overflow-x:auto; scrollbar-width:none}
+.sous-nav::-webkit-scrollbar{display:none}
+.sous-nav button{
+  display:inline-flex; align-items:center; gap:8px; height:38px; padding:0 14px; flex:none;
+  border:0; border-radius:9px; background:transparent; color:var(--texte-2); font-weight:600; font-size:14px; cursor:pointer;
+  transition:background var(--transition), color var(--transition);
+}
+.sous-nav button:hover{background:var(--surface-2); color:var(--texte)}
+.sous-nav button[aria-current="page"]{background:var(--accent-doux); color:var(--accent-fonce)}
+.sous-nav .ic{width:16px; height:16px}
+.compteur{min-width:20px; height:20px; padding:0 6px; border-radius:999px; background:var(--danger); color:#fff; font:600 11.5px/20px var(--f-mono); text-align:center}
+.champ textarea{
+  width:100%; min-height:80px; padding:10px 12px; resize:vertical; font:inherit;
+  background:var(--surface); border:1px solid var(--bord); border-radius:var(--rayon-s);
+  transition:border-color var(--transition), box-shadow var(--transition);
+}
+.champ textarea:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 4px rgba(234,88,12,.12)}
+.grille-form{display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:14px}
+.grille-form .large{grid-column:1 / -1}
+.modal.large{max-width:880px}
+.modal .sous-titre{font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--texte-2); margin:6px 0 -4px}
+.donnees.texte{min-width:980px}
+.donnees.texte th, .donnees.texte td{text-align:left; font-family:var(--f-texte)}
+.donnees.texte th:first-child, .donnees.texte td:first-child{min-width:0}
+.donnees.texte td.mono{font-family:var(--f-mono); font-size:13px}
+.donnees td.wrap{white-space:normal; min-width:200px; max-width:340px; color:var(--texte-2)}
+.donnees td.outils{text-align:right; padding-top:6px; padding-bottom:6px}
+.donnees td.outils .btn-icone{width:30px; height:30px}
+.donnees tr.ligne-retard td{background:#FFF6F6}
+.donnees tr.ligne-jour td{background:#FFF9F2}
+.donnees.compacte{min-width:720px; font-size:13px}
+.donnees.compacte th, .donnees.compacte td{padding:9px 10px}
+.donnees .centre{text-align:center}
+.puce-ok{background:var(--ok-doux); color:var(--ok)}
+.puce-danger{background:var(--danger-doux); color:var(--danger)}
+.puce-orange{background:var(--accent-doux); color:var(--accent-fonce)}
+.puce-neutre{background:var(--bg); color:var(--texte-2); border:1px solid var(--bord)}
+.lien-nom{border:0; background:none; padding:0; cursor:pointer; text-align:left; color:inherit; font:inherit}
+.lien-nom strong{transition:color var(--transition)}
+.lien-nom:hover strong{color:var(--accent-fonce); text-decoration:underline}
+.select-ligne{height:32px; border:1px solid var(--bord); border-radius:8px; background:var(--surface); padding:0 8px; font-size:13px; cursor:pointer}
+.select-ligne:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(234,88,12,.12)}
+.donnees.pointage{min-width:900px}
+.donnees.pointage td.p{text-align:center; font-weight:600; font-size:14px}
+.p-ok{color:var(--ok)}
+.p-retard{color:var(--alerte)}
+.p-manque{color:var(--danger); background:var(--danger-doux) !important}
+.p-attente{color:var(--muted)}
+.p-na{color:#C9C4BE}
+.legende{display:flex; gap:14px; flex-wrap:wrap; font-size:12.5px; color:var(--muted)}
+.legende b{font-family:var(--f-mono); color:var(--texte-2)}
+.fiche-grille{display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:12px 20px; margin:0}
+.fiche-grille dt{font-size:12px; color:var(--muted)}
+.fiche-grille dd{margin:2px 0 0; font-weight:500; font-size:14px; overflow-wrap:anywhere}
+.mini-kpis{display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px}
+.mini-kpis div{background:var(--surface-2); border:1px solid var(--bord); border-radius:10px; padding:10px 12px}
+.mini-kpis span{display:block; font-size:12px; color:var(--muted)}
+.mini-kpis strong{font-family:var(--f-mono); font-size:18px; font-weight:600}
+.bilan{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px; color:var(--texte-2); font-size:14px}
+.champ-clics{width:110px; height:36px; padding:0 10px; text-align:right; font-family:var(--f-mono); border:1px solid var(--bord); border-radius:8px; background:var(--surface)}
+.champ-clics:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(234,88,12,.12)}
+
 /* ============ Responsive ============ */
 @media (max-width:1024px){
   .kpis{grid-template-columns:repeat(2,1fr)}
@@ -405,6 +474,7 @@ table.donnees{width:100%; border-collapse:separate; border-spacing:0; font-size:
   .grille-2{grid-template-columns:1fr}
   .form-ligne, .form-ligne.trois{grid-template-columns:1fr}
   .champs, .champs.quatre{grid-template-columns:repeat(2, minmax(0,1fr))}
+  .grille-form, .fiche-grille, .mini-kpis{grid-template-columns:repeat(2, minmax(0,1fr))}
   .topbar-in{flex-wrap:wrap; padding:10px 16px; gap:10px}
   .nav-semaine{order:3; width:100%; justify-content:space-between}
   .utilisateur{margin-left:auto}
@@ -427,6 +497,7 @@ table.donnees{width:100%; border-collapse:separate; border-spacing:0; font-size:
   #btn-deconnexion{width:36px; padding:0}
   .toasts{left:16px; right:16px; align-items:stretch}
   .liste li{flex-wrap:wrap}
+  .grille-form, .fiche-grille{grid-template-columns:1fr}
 }
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:1ms !important; transition-duration:1ms !important}
@@ -469,6 +540,17 @@ const LOGO_BASE64 = "";
 const TITRE_APPLI = "Suivi de prospection";
 const CODE_CLAIRE_DEFAUT = "Claire2026";      // code initial de Claire, modifiable ensuite par le propriétaire
 const SEUILS_DECROCHE = [0.10, 0.20, 0.30];   // taux de décroché : 2, 3 et 4 barres à partir de ces seuils
+const DELAI_TABLEAU = 1;                      // pointage : jours accordés après le dimanche pour déclarer la semaine
+const DEBUT_POINTAGE = '2026-W43';            // pointage : semaines antérieures « non concernées » (début du suivi dans l'Excel)
+
+/* Listes du suivi des revendeurs (reprises du fichier Excel) */
+const STATUTS_REP = ['Actif', 'Mail invalide', "Arrêt de l'activité"];
+const ETAPES = ['ok', 'oui', 'non', 'en cours'];
+const TYPES_ACTION = ['Appel', 'Mail', 'SMS', 'WhatsApp', 'Message vocal', 'Visio', 'Rendez-vous', 'Formation', 'Envoi documents', 'Autre'];
+const RESULTATS_ACTION = ['Joint', 'Pas de réponse', 'Message laissé', 'Envoyé', 'RDV fixé', 'À rappeler', 'Autre'];
+const STATUTS_RELANCE = ['À faire', 'En attente', 'Fait', 'Annulé'];
+const STATUTS_RDV = ['À rappeler', 'RDV fixé', 'RDV fait', 'Signé', 'Sans suite'];
+const TOUS = 'TOUS';   // action de relance groupée
 
 /* =====================================================================
    DÉFINITION DES CHAMPS
@@ -520,6 +602,11 @@ const ICONES = {
   envoi: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
   cible: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
   fichier: '<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><path d="M14 2v6h6"/>',
+  liste: '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/>',
+  importer: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
+  clic: '<path d="m9 9 5 12 1.8-5.2L21 14Z"/><path d="M7.2 2.2 8 5.1M5.1 8l-2.9-.8M14 4.1 12 6M6 12l-1.9 2"/>',
+  fiche: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M15 8h2M15 12h2M7 16h10"/>',
+  rdv: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="m9 16 2 2 4-4"/>',
 };
 function ic(nom, classe = '') {
   return `<svg class="ic ${classe}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONES[nom] || ''}</svg>`;
@@ -537,6 +624,16 @@ const initiales = nom => String(nom).trim().split(/\s+/).slice(0, 2).map(m => m[
 const fmtNombre = (n, dec = 0) => Number(n || 0).toLocaleString('fr-FR', { maximumFractionDigits: dec });
 const fmtPct = v => v == null ? '—' : (v * 100).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %';
 const parSur = (n, d) => d > 0 ? n / d : null;
+const deux = n => String(n).padStart(2, '0');
+const dateISO = d => `${d.getFullYear()}-${deux(d.getMonth() + 1)}-${deux(d.getDate())}`;   // date locale AAAA-MM-JJ
+const AUJ = dateISO(new Date());
+const fmtDate = iso => iso ? iso.slice(0, 10).split('-').reverse().join('/') : '';
+const fmtDateHeure = iso => !iso ? '' : fmtDate(iso) + (iso.length > 10 ? ' ' + iso.slice(11, 16) : '');
+// Options d'une liste déroulante ; une valeur hors liste (reprise d'Excel) est conservée
+function options(liste, choisi = '') {
+  const l = choisi && !liste.includes(choisi) ? [...liste, choisi] : liste;
+  return l.map(v => `<option value="${esc(v)}" ${v === choisi ? 'selected' : ''}>${esc(v)}</option>`).join('');
+}
 
 function logoUrl() {
   if (LOGO_BASE64) return LOGO_BASE64.startsWith('data:') ? LOGO_BASE64 : 'data:image/png;base64,' + LOGO_BASE64;
@@ -728,7 +825,13 @@ const S = {
   managers: [],
   reps: [],
   entries: {},          // idRep -> { cleSemaine -> saisie }
+  actions: [],          // journal des échanges avec les revendeurs (CRM)
+  rdv: [],              // retours positifs (demandes de RDV)
+  clics: {},            // cleSemaine -> clics sur le lien SMS
   session: null,        // { role: 'owner' | 'manager' | 'rep', id }
+  vue: 'tableau',       // section affichée côté manager
+  filtreActions: { rep: '', relances: false },
+  filtreRdv: '',
   semaine: SEMAINE_COURANTE,
   mois: moisDeSemaine(SEMAINE_COURANTE),
   filtre: 'tous',       // propriétaire : 'tous' | 'moi' | id d'un manager
@@ -744,6 +847,9 @@ async function chargerTout() {
   S.admin = carte['team:admin'] || null;
   S.managers = Array.isArray(carte['team:managers']) ? carte['team:managers'] : null;
   S.reps = Array.isArray(carte['team:reps']) ? carte['team:reps'] : [];
+  S.actions = Array.isArray(carte['team:actions']) ? carte['team:actions'] : [];
+  S.rdv = Array.isArray(carte['team:rdv']) ? carte['team:rdv'] : [];
+  S.clics = carte['team:clics'] || {};
   S.entries = {};
   for (const [cle, valeur] of Object.entries(carte)) {
     if (cle.startsWith('team:entries:')) S.entries[cle.slice('team:entries:'.length)] = valeur || {};
@@ -849,18 +955,18 @@ async function tenter(bouton, action) {
  * Modale générique. `valider(donnees)` peut lever une erreur : elle s'affiche
  * dans la modale sans la fermer. Renvoie les données saisies, ou null si annulé.
  */
-function modale({ titre, html, ok = 'Valider', danger = false, valider }) {
+function modale({ titre, html, ok = 'Valider', danger = false, valider, large = false, annuler = 'Annuler' }) {
   return new Promise(resoudre => {
     const fond = document.createElement('div');
     fond.className = 'modal-fond';
     fond.innerHTML = `
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-titre">
+      <div class="modal ${large ? 'large' : ''}" role="dialog" aria-modal="true" aria-labelledby="modal-titre">
         <h3 id="modal-titre">${esc(titre)}</h3>
         <form class="modal-corps" novalidate>
           ${html}
           <p class="form-erreur" hidden></p>
           <div class="modal-actions">
-            <button type="button" class="btn btn-ghost" data-annuler>Annuler</button>
+            <button type="button" class="btn btn-ghost" data-annuler ${annuler ? '' : 'hidden'}>${esc(annuler || '')}</button>
             <button type="submit" class="btn ${danger ? 'btn-danger' : 'btn-primary'}">${esc(ok)}</button>
           </div>
         </form>
@@ -1114,6 +1220,7 @@ function afficherConnexion() {
       await chargerTout();
       const r = S.reps.find(x => x.id === d.rep);
       if (!r) return erreur(form, "Ce compte n'existe plus. Rechargez la page.");
+      if (!r.password) return erreur(form, "Votre mot de passe n'a pas encore été défini : demandez-le à votre manager.");
       if (r.password !== d.mdp) return erreur(form, 'Mot de passe incorrect.');
       S.session = { role: 'rep', id: r.id };
       sauverSession();
@@ -1320,7 +1427,9 @@ function rendreRep() {
     tenter(form.querySelector('[type=submit]'), async () => {
       const cle = 'team:entries:' + S.session.id;
       const toutes = (await kvGet(cle)) || {};
-      toutes[S.semaine] = { ...d, majLe: new Date().toISOString() };
+      const maintenant = new Date().toISOString();
+      // recuLe : première déclaration de la semaine, sert au pointage (reçu à temps ou en retard)
+      toutes[S.semaine] = { ...d, majLe: maintenant, recuLe: toutes[S.semaine]?.recuLe || maintenant };
       await kvSet(cle, toutes);
       S.entries[S.session.id] = toutes;
       S.saisieModifiee = false;
@@ -1333,7 +1442,7 @@ function rendreRep() {
 /* =====================================================================
    ESPACE MANAGER / PROPRIÉTAIRE
    ===================================================================== */
-function rendreManager() {
+function vueTableau() {
   const proprio = S.session.role === 'owner';
   const reps = repsVisibles();
   const avecManager = proprio && S.filtre === 'tous' && S.managers.length > 0;
@@ -1348,16 +1457,9 @@ function rendreManager() {
   });
   const total = avecTaux(somme(reps.map(r => saisieSemaine(r.id, S.semaine))));
   const declares = reps.filter(r => saisieSemaine(r.id, S.semaine)).length;
+  const filtre = filtreHTML();
 
-  const filtre = proprio ? `
-    <label class="filtre"><span>Afficher les téléprospecteurs de</span>
-      <select id="filtre-manager">
-        <option value="tous" ${S.filtre === 'tous' ? 'selected' : ''}>Tout le monde</option>
-        <option value="moi" ${S.filtre === 'moi' ? 'selected' : ''}>Moi</option>
-        ${S.managers.map(m => `<option value="${esc(m.id)}" ${S.filtre === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}
-      </select></label>` : '';
-
-  $('main').innerHTML = `
+  return `
     <section class="entete-page apparait">
       <div>
         <p class="surtitre">${proprio ? "Tableau de bord · vue d'ensemble" : 'Tableau de bord · mon équipe'}</p>
@@ -1412,11 +1514,6 @@ function rendreManager() {
       ${blocEquipe(reps)}
       ${proprio ? blocManagers() : ''}
     </div>`;
-
-  // Animation des barres de classement
-  requestAnimationFrame(() => $('main').querySelectorAll('.barre > i[data-w]').forEach(i => { i.style.width = i.dataset.w; }));
-
-  $('filtre-manager')?.addEventListener('change', e => { S.filtre = e.target.value; rendreManager(); });
 }
 
 function segmentCritere() {
@@ -1467,7 +1564,8 @@ function blocEquipe(reps) {
           <li>
             <span class="avatar">${esc(initiales(r.name))}</span>
             <div class="infos"><strong>${esc(r.name)}</strong>
-              <small>${proprio ? 'Manager : ' + esc(nomManager(r.managerId)) : 'Ajouté le ' + new Date(r.creeLe).toLocaleDateString('fr-FR')}</small></div>
+              <small>${proprio ? 'Manager : ' + esc(nomManager(r.managerId)) : 'Ajouté le ' + new Date(r.creeLe).toLocaleDateString('fr-FR')}
+                ${r.password ? '' : ' · <span class="puce puce-attente">Mot de passe à définir</span>'}</small></div>
             ${secret(r.password, 'le mot de passe de ' + r.name)}
             <button class="btn-icone" data-action="modifier-rep" data-id="${esc(r.id)}" aria-label="Modifier ${esc(r.name)}" title="Modifier">${ic('crayon')}</button>
             <button class="btn-icone danger" data-action="supprimer-rep" data-id="${esc(r.id)}" aria-label="Supprimer ${esc(r.name)}" title="Supprimer">${ic('corbeille')}</button>
@@ -1551,19 +1649,23 @@ $('main').addEventListener('click', async e => {
     await modale({
       titre: `Modifier ${r.name}`,
       ok: 'Enregistrer',
+      large: true,
       html: `
-        <label class="champ"><span>Nom</span><input name="nom" value="${esc(r.name)}" required></label>
-        ${champMdp('mdp', 'Mot de passe', { auto: 'new-password', valeur: r.password })}
-        ${proprio ? `<label class="champ"><span>Rattacher à</span><select name="managerId">
-          <option value="${OWNER}" ${r.managerId === OWNER ? 'selected' : ''}>Moi (propriétaire)</option>
-          ${S.managers.map(m => `<option value="${esc(m.id)}" ${r.managerId === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}
-        </select></label>` : ''}`,
+        <div class="grille-form">
+          <label class="champ"><span>Nom</span><input name="nom" value="${esc(r.name)}" required></label>
+          ${champMdp('mdp', 'Mot de passe de connexion', { auto: 'new-password', valeur: r.password, placeholder: 'À définir' })}
+          ${proprio ? `<label class="champ"><span>Rattacher à</span><select name="managerId">
+            <option value="${OWNER}" ${r.managerId === OWNER ? 'selected' : ''}>Moi (propriétaire)</option>
+            ${S.managers.map(m => `<option value="${esc(m.id)}" ${r.managerId === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}
+          </select></label>` : ''}
+        </div>
+        ${champsFiche(r)}`,
       valider: async d => {
         const nom = d.nom.trim();
         verifierNomRep(nom, r.id);
-        if (d.mdp.length < 4) throw new Error('Le mot de passe doit contenir au moins 4 caractères.');
+        if (d.mdp && d.mdp.length < 4) throw new Error('Le mot de passe doit contenir au moins 4 caractères.');
         S.reps = await majListe('team:reps', l => l.map(x => x.id === r.id
-          ? { ...x, name: nom, password: d.mdp, managerId: proprio ? d.managerId : x.managerId } : x));
+          ? { ...x, ...lireFiche(d), name: nom, password: d.mdp, managerId: proprio ? d.managerId : x.managerId } : x));
         toast('Téléprospecteur mis à jour.');
         rendreManager();
       },
@@ -1665,6 +1767,864 @@ $('main').addEventListener('submit', e => {
       S.managers = await majListe('team:managers', l => [...l, { id: uid('m'), name: nom, code: d.code, creeLe: new Date().toISOString() }]);
       toast(`Accès manager créé pour ${nom}.`);
     }
+    rendreManager();
+  });
+});
+
+/* =====================================================================
+   ESPACE MANAGER : SECTIONS (tableau de bord + suivi des revendeurs)
+   ===================================================================== */
+const VUES = [
+  { k: 'tableau',    titre: 'Tableau de bord',    icone: 'graphique' },
+  { k: 'revendeurs', titre: 'Revendeurs',         icone: 'fiche' },
+  { k: 'actions',    titre: 'Actions & relances', icone: 'liste' },
+  { k: 'rdv',        titre: 'Retours positifs',   icone: 'rdv' },
+  { k: 'clics',      titre: 'Clics SMS',          icone: 'clic', proprio: true },
+];
+
+function rendreManager() {
+  const proprio = S.session.role === 'owner';
+  if (!VUES.some(v => v.k === S.vue && (!v.proprio || proprio))) S.vue = 'tableau';
+  const vue = { tableau: vueTableau, revendeurs: vueRevendeurs, actions: vueActions, rdv: vueRdv, clics: vueClics }[S.vue];
+  $('main').innerHTML = sousNav() + vue();
+  // Animation des barres de classement
+  requestAnimationFrame(() => $('main').querySelectorAll('.barre > i[data-w]').forEach(i => { i.style.width = i.dataset.w; }));
+  $('filtre-manager')?.addEventListener('change', e => { S.filtre = e.target.value; rendreManager(); });
+}
+
+function sousNav() {
+  const proprio = S.session.role === 'owner';
+  const relances = actionsVisibles().filter(a => ['retard', 'jour'].includes(etatRelance(a))).length;
+  return `<nav class="sous-nav apparait" aria-label="Sections">${VUES.filter(v => !v.proprio || proprio).map(v => `
+    <button data-action="vue" data-vue="${v.k}" ${S.vue === v.k ? 'aria-current="page"' : ''}>${ic(v.icone)}${v.titre}${v.k === 'actions' && relances
+      ? `<span class="compteur" title="Relances en retard ou prévues aujourd'hui">${relances}</span>` : ''}</button>`).join('')}</nav>`;
+}
+
+function filtreHTML() {
+  if (S.session.role !== 'owner') return '';
+  return `
+    <label class="filtre"><span>Afficher les téléprospecteurs de</span>
+      <select id="filtre-manager">
+        <option value="tous" ${S.filtre === 'tous' ? 'selected' : ''}>Tout le monde</option>
+        <option value="moi" ${S.filtre === 'moi' ? 'selected' : ''}>Moi</option>
+        ${S.managers.map(m => `<option value="${esc(m.id)}" ${S.filtre === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}
+      </select></label>`;
+}
+
+/* --- Petits éléments d'affichage --- */
+const kpi = (icone, lib, val, det = '') =>
+  `<div class="carte kpi"><span class="lib">${ic(icone)}${lib}</span><span class="val">${val}</span><span class="det">${det}</span></div>`;
+const ligneVide = (colonnes, texte) =>
+  `<tr><td colspan="${colonnes}" class="muted" style="text-align:left;font-family:var(--f-texte)">${esc(texte)}</td></tr>`;
+const nomRep = id => S.reps.find(r => r.id === id)?.name || 'Revendeur supprimé';
+function puceStatut(statut) {
+  const s = statut || 'Actif';
+  const classe = s === 'Actif' ? 'puce-ok' : s === 'Mail invalide' ? 'puce-attente' : 'puce-danger';
+  return `<span class="puce ${classe}">${esc(s)}</span>`;
+}
+function puceEtape(v) {
+  if (!v) return '<span class="muted">—</span>';
+  const n = normaliser(v);
+  const classe = n === 'ok' || n === 'oui' ? 'puce-ok' : n === 'non' ? 'puce-danger' : 'puce-attente';
+  return `<span class="puce ${classe}">${esc(v)}</span>`;
+}
+function puceRelance(date, etat) {
+  const classe = etat === 'retard' ? 'puce-danger' : etat === 'jour' ? 'puce-orange' : 'puce-neutre';
+  const suffixe = etat === 'retard' ? ' · en retard' : etat === 'jour' ? " · aujourd'hui" : '';
+  return `<span class="puce ${classe}">${fmtDate(date)}${suffixe}</span>`;
+}
+function puceRdv(statut) {
+  const classe = statut === 'Signé' ? 'puce-ok' : statut === 'Sans suite' ? 'puce-neutre' : statut === 'RDV fixé' || statut === 'RDV fait' ? 'puce-orange' : 'puce-attente';
+  return `<span class="puce ${classe}">${esc(statut || 'À rappeler')}</span>`;
+}
+const lienRep = id => S.reps.some(r => r.id === id)
+  ? `<button class="lien-nom" data-action="fiche-rep" data-id="${esc(id)}"><strong>${esc(nomRep(id))}</strong></button>`
+  : `<span class="muted">${id ? 'Revendeur supprimé' : 'Non attribué'}</span>`;
+
+/* --- Suivi CRM : actions, relances, pointage --- */
+function etatRelance(a) {
+  if (!a.relance || a.statut === 'Fait' || a.statut === 'Annulé') return null;
+  return a.relance < AUJ ? 'retard' : a.relance === AUJ ? 'jour' : 'avenir';
+}
+// Une relance groupée compte pour chaque revendeur signé avant sa date
+const actionsDuRep = id => S.actions.filter(a => a.repId === id || (a.repId === TOUS && (a.repIds || []).includes(id)));
+function actionsVisibles() {
+  const ids = new Set(repsVisibles().map(r => r.id));
+  const tout = S.session.role === 'owner' && S.filtre === 'tous';
+  return S.actions
+    .filter(a => tout || (a.repId === TOUS ? (a.repIds || []).some(i => ids.has(i)) : ids.has(a.repId)))
+    .sort((a, b) => b.date.localeCompare(a.date) || (b.creeLe || '').localeCompare(a.creeLe || ''));
+}
+function rdvVisibles() {
+  const ids = new Set(repsVisibles().map(r => r.id));
+  const tout = S.session.role === 'owner' && S.filtre === 'tous';
+  return S.rdv.filter(x => tout || ids.has(x.repId)).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+}
+function suiviRep(id) {
+  const l = actionsDuRep(id);
+  const dernier = l.reduce((m, a) => (!m || a.date > m.date ? a : m), null);
+  const relance = l.filter(a => etatRelance(a)).map(a => a.relance).sort()[0] || null;
+  return { dernier, nb: l.length, relance };
+}
+function dernierTableau(id) {
+  const semaines = Object.keys(S.entries[id] || {}).sort();
+  return semaines.length ? semaines[semaines.length - 1] : null;
+}
+
+const POINTAGE = {
+  ok:      ['✓', 'Reçu'],
+  retard:  ['R', 'Reçu en retard'],
+  manque:  ['✗', 'Manquant'],
+  attente: ['…', 'En attente (délai pas écoulé)'],
+  na:      ['–', 'Non concerné'],
+};
+// Un tableau est « reçu » dès que la semaine est déclarée ; en retard après dimanche + DELAI_TABLEAU
+function etatPointage(rep, semaine) {
+  const dimanche = lundi(semaine);
+  dimanche.setUTCDate(dimanche.getUTCDate() + 6);
+  const limite = new Date(dimanche);
+  limite.setUTCDate(limite.getUTCDate() + DELAI_TABLEAU);
+  const limiteISO = limite.toISOString().slice(0, 10);
+  const e = saisieSemaine(rep.id, semaine);
+  if (e) {
+    // recuLe null : semaine importée d'Excel sans date de réception, comptée comme reçue à temps
+    const recu = e.recuLe === null ? '' : (e.recuLe || e.majLe || '').slice(0, 10);
+    return recu > limiteISO ? 'retard' : 'ok';
+  }
+  if (semaine < DEBUT_POINTAGE) return 'na';
+  if (rep.dateSign && dimanche.toISOString().slice(0, 10) < rep.dateSign) return 'na';
+  if ((rep.statut || 'Actif') !== 'Actif') return 'na';
+  return AUJ <= limiteISO ? 'attente' : 'manque';
+}
+
+/* --- Fiche revendeur : champs communs à la création et à la modification --- */
+const CHAMPS_FICHE = ['statut', 'dateSign', 'tel', 'email', 'dpt', 'heuresPrevues', 'formation', 'envoiElements', 'fichier'];
+const lireFiche = d => Object.fromEntries(CHAMPS_FICHE.map(k => [k, String(d[k] || '').trim()]));
+function champsFiche(r = {}) {
+  const etape = (nom, lib) => `<label class="champ"><span>${lib}</span><select name="${nom}"><option value="">—</option>${options(ETAPES, r[nom] || '')}</select></label>`;
+  return `<div class="grille-form">
+    <label class="champ"><span>Statut</span><select name="statut">${options(STATUTS_REP, r.statut || 'Actif')}</select></label>
+    <label class="champ"><span>Date de signature</span><input type="date" name="dateSign" value="${esc(r.dateSign || '')}"></label>
+    <label class="champ"><span>Téléphone</span><input name="tel" value="${esc(r.tel || '')}" autocomplete="off" inputmode="tel"></label>
+    <label class="champ"><span>E-mail</span><input type="email" name="email" value="${esc(r.email || '')}" autocomplete="off"></label>
+    <label class="champ"><span>Département</span><input name="dpt" value="${esc(r.dpt || '')}" autocomplete="off"></label>
+    <label class="champ"><span>Heures prévues</span><input name="heuresPrevues" value="${esc(r.heuresPrevues || '')}" placeholder="Ex. 15 h / semaine" autocomplete="off"></label>
+    ${etape('formation', 'Formation Aerial')}
+    ${etape('envoiElements', 'Envoi des éléments')}
+    ${etape('fichier', 'Fichier')}
+  </div>`;
+}
+
+/* =====================================================================
+   SECTION : REVENDEURS (pointage des tableaux + fiches)
+   ===================================================================== */
+function vueRevendeurs() {
+  const proprio = S.session.role === 'owner';
+  const reps = repsVisibles();
+  const semaines = Array.from({ length: 10 }, (_, i) => decalerSemaine(S.semaine, i - 9));
+  const actifs = reps.filter(r => (r.statut || 'Actif') === 'Actif').length;
+  const enRetard = actionsVisibles().filter(a => etatRelance(a) === 'retard').length;
+  const manquants = reps.reduce((n, r) => n + semaines.filter(s => etatPointage(r, s) === 'manque').length, 0);
+  const rdvOuverts = rdvVisibles().filter(x => x.statut === 'À rappeler' || x.statut === 'RDV fixé').length;
+
+  const lignesPointage = reps.map(r => {
+    const etats = semaines.map(s => etatPointage(r, s));
+    return `<tr>
+      <td>${lienRep(r.id)}</td>
+      <td style="font-family:var(--f-texte);text-align:left">${puceStatut(r.statut)}</td>
+      ${etats.map((e, i) => `<td class="p p-${e}" title="S${numSemaine(semaines[i])} : ${POINTAGE[e][1]}">${POINTAGE[e][0]}</td>`).join('')}
+      <td class="sep">${etats.filter(e => e === 'ok' || e === 'retard').length}</td>
+      <td>${etats.filter(e => e === 'retard').length}</td>
+      <td>${etats.filter(e => e === 'manque').length}</td>
+    </tr>`;
+  }).join('') || ligneVide(semaines.length + 5, 'Aucun revendeur dans cette sélection.');
+
+  const lignesFiches = reps.map(r => {
+    const suivi = suiviRep(r.id);
+    const dt = dernierTableau(r.id);
+    return `<tr>
+      <td>${lienRep(r.id)}</td>
+      <td>${puceStatut(r.statut)}</td>
+      <td class="mono">${esc(r.tel || '—')}</td>
+      <td>${esc(r.dpt || '—')}</td>
+      <td>${r.email ? `<a href="mailto:${esc(r.email)}" style="color:inherit">${esc(r.email)}</a>` : '—'}</td>
+      <td class="mono">${fmtDate(r.dateSign) || '—'}</td>
+      <td>${puceEtape(r.formation)}</td>
+      <td>${puceEtape(r.envoiElements)}</td>
+      <td>${puceEtape(r.fichier)}</td>
+      <td>${suivi.dernier ? `<span class="mono">${fmtDate(suivi.dernier.date)}</span> <span class="muted">${esc(suivi.dernier.type || '')}</span>` : '—'}</td>
+      <td class="mono">${suivi.nb}</td>
+      <td>${suivi.relance ? puceRelance(suivi.relance, suivi.relance < AUJ ? 'retard' : suivi.relance === AUJ ? 'jour' : 'avenir') : '—'}</td>
+      <td class="mono">${dt ? 'S' + numSemaine(dt) : '—'}</td>
+      <td class="outils"><button class="btn-icone" data-action="modifier-rep" data-id="${esc(r.id)}" aria-label="Modifier ${esc(r.name)}" title="Modifier la fiche">${ic('crayon')}</button></td>
+    </tr>`;
+  }).join('') || ligneVide(14, 'Aucun revendeur dans cette sélection.');
+
+  return `
+    <section class="entete-page apparait">
+      <div><p class="surtitre">Fiches et suivi</p><h1>Revendeurs <span class="muted">· ${reps.length}</span></h1></div>
+      <div class="actions-page">
+        ${filtreHTML()}
+        ${proprio ? `<button class="btn btn-ghost" data-action="importer">${ic('importer')}Importer le fichier Excel</button>` : ''}
+        <button class="btn btn-primary" data-action="nouveau-rep">${ic('plus')}Nouveau revendeur</button>
+      </div>
+    </section>
+
+    <section class="kpis apparait">
+      ${kpi('equipe', 'Revendeurs actifs', `${actifs}<span class="muted" style="font-size:18px"> / ${reps.length}</span>`, reps.length - actifs ? `<b>${reps.length - actifs}</b> inactif${reps.length - actifs > 1 ? 's' : ''}` : 'Tous actifs')}
+      ${kpi('alerte', 'Relances en retard', enRetard, 'Voir « Actions & relances »')}
+      ${kpi('calendrier', 'Tableaux manquants', manquants, 'Sur les 10 dernières semaines')}
+      ${kpi('rdv', 'RDV à traiter', rdvOuverts, 'À rappeler ou RDV fixé')}
+    </section>
+
+    <section class="carte apparait">
+      <div class="carte-tete">
+        <div><div class="titre">${ic('calendrier')}<h2>Pointage des tableaux hebdo</h2></div>
+        <p>Rempli automatiquement par les déclarations des téléprospecteurs · délai : ${DELAI_TABLEAU} jour après le dimanche</p></div>
+        <div class="legende">${Object.values(POINTAGE).map(([s, l]) => `<span><b>${s}</b> ${l}</span>`).join('')}</div>
+      </div>
+      <div class="table-defile" tabindex="0" aria-label="Pointage défilant horizontalement">
+        <table class="donnees pointage">
+          <thead><tr><th scope="col">Revendeur</th><th scope="col" style="text-align:left">Statut</th>
+            ${semaines.map(s => `<th scope="col" class="centre" title="${plageSemaine(s)}">S${numSemaine(s)}</th>`).join('')}
+            <th scope="col" class="sep">Reçus</th><th scope="col">En retard</th><th scope="col">Manquants</th></tr></thead>
+          <tbody>${lignesPointage}</tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="carte apparait">
+      <div class="carte-tete">
+        <div><div class="titre">${ic('fiche')}<h2>Fiches revendeurs</h2></div>
+        <p>Cliquez sur un nom pour ouvrir sa fiche : coordonnées, chiffres cumulés et historique des échanges</p></div>
+      </div>
+      <div class="table-defile" tabindex="0" aria-label="Fiches défilant horizontalement">
+        <table class="donnees texte">
+          <thead><tr><th>Revendeur</th><th>Statut</th><th>Téléphone</th><th>Dpt</th><th>E-mail</th><th>Signé le</th><th>Formation</th><th>Éléments</th><th>Fichier</th><th>Dernier contact</th><th>Actions</th><th>Prochaine relance</th><th>Dernier tableau</th><th></th></tr></thead>
+          <tbody>${lignesFiches}</tbody>
+        </table>
+      </div>
+    </section>`;
+}
+
+async function ouvrirFiche(id) {
+  const r = repAutorise(id);
+  const semaines = Object.keys(S.entries[r.id] || {}).sort();
+  const cumul = avecTaux(somme(semaines.map(s => S.entries[r.id][s])));
+  const actions = actionsDuRep(r.id).sort((a, b) => b.date.localeCompare(a.date));
+  const nbRdv = S.rdv.filter(x => x.repId === r.id).length;
+  const info = (lib, val) => `<div><dt>${lib}</dt><dd>${val || '—'}</dd></div>`;
+  const dt = dernierTableau(r.id);
+  const nouvelle = await modale({
+    titre: r.name,
+    large: true,
+    ok: 'Nouvelle action',
+    annuler: 'Fermer',
+    html: `
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${puceStatut(r.statut)}<span class="note">Manager : ${esc(nomManager(r.managerId))}</span></div>
+      <dl class="fiche-grille">
+        ${info('Téléphone', esc(r.tel))}${info('E-mail', esc(r.email))}${info('Département', esc(r.dpt))}
+        ${info('Heures prévues', esc(r.heuresPrevues))}${info('Signé le', fmtDate(r.dateSign))}${info('Dernier tableau', dt ? `Semaine ${numSemaine(dt)}` : '')}
+        ${info('Formation Aerial', puceEtape(r.formation))}${info('Envoi des éléments', puceEtape(r.envoiElements))}${info('Fichier', puceEtape(r.fichier))}
+      </dl>
+      <h4 class="sous-titre">Activité cumulée</h4>
+      <div class="mini-kpis">
+        ${[['Semaines saisies', semaines.length], ['Heures', fmtNombre(cumul.heures, 2)], ['Appels', fmtNombre(cumul.appels)], ['Décrochés', fmtNombre(cumul.decroches)],
+           ['Retours', fmtNombre(cumul.retours)], ['Taux de décroché', fmtPct(cumul.tDecroche)], ['Taux de retour', fmtPct(cumul.tRetour)], ['Retours positifs (RDV)', nbRdv]]
+          .map(([l, v]) => `<div><span>${l}</span><strong>${v}</strong></div>`).join('')}
+      </div>
+      <h4 class="sous-titre">Historique des échanges · ${actions.length}</h4>
+      ${actions.length ? `<div class="table-defile"><table class="donnees texte compacte">
+        <thead><tr><th>Date</th><th>Type</th><th>Objet</th><th>Compte-rendu</th><th>Résultat</th><th>Relance</th></tr></thead>
+        <tbody>${actions.map(a => `<tr>
+          <td class="mono">${fmtDate(a.date)}</td>
+          <td>${esc(a.type)}${a.repId === TOUS ? ' <span class="puce puce-orange">groupée</span>' : ''}</td>
+          <td>${esc(a.objet)}</td><td class="wrap">${esc(a.detail)}</td><td>${esc(a.resultat)}</td>
+          <td>${a.relance ? puceRelance(a.relance, etatRelance(a)) + (a.statut ? ` <span class="muted">${esc(a.statut)}</span>` : '') : '—'}</td>
+        </tr>`).join('')}</tbody></table></div>` : '<p class="note">Aucun échange enregistré pour le moment.</p>'}`,
+  });
+  if (nouvelle) await ouvrirAction({ repId: r.id });
+}
+
+async function ouvrirNouveauRep() {
+  const proprio = S.session.role === 'owner';
+  await modale({
+    titre: 'Nouveau revendeur',
+    ok: 'Créer la fiche',
+    large: true,
+    html: `
+      <div class="grille-form">
+        <label class="champ"><span>Nom</span><input name="nom" autocomplete="off" placeholder="Prénom NOM" required></label>
+        ${champMdp('mdp', 'Mot de passe de connexion', { auto: 'new-password', placeholder: '4 caractères minimum' })}
+        ${proprio ? `<label class="champ"><span>Rattacher à</span><select name="managerId">
+          <option value="${OWNER}">Moi (propriétaire)</option>
+          ${S.managers.map(m => `<option value="${esc(m.id)}" ${S.filtre === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}
+        </select></label>` : ''}
+      </div>
+      ${champsFiche({})}
+      <p class="note">Sans mot de passe, le revendeur ne peut pas encore se connecter pour déclarer ses chiffres.</p>`,
+    valider: async d => {
+      const nom = d.nom.trim().replace(/\s+/g, ' ');
+      verifierNomRep(nom);
+      if (d.mdp && d.mdp.length < 4) throw new Error('Le mot de passe doit contenir au moins 4 caractères.');
+      const managerId = proprio ? (d.managerId || OWNER) : S.session.id;
+      S.reps = await majListe('team:reps', l => {
+        if (l.some(r => normaliser(r.name) === normaliser(nom))) throw new Error('Un téléprospecteur porte déjà ce nom.');
+        return [...l, { id: uid('r'), name: nom, password: d.mdp || '', managerId, creeLe: new Date().toISOString(), ...lireFiche(d) }];
+      });
+      toast(`Fiche de ${nom} créée.`);
+      rendreManager();
+    },
+  });
+}
+
+/* =====================================================================
+   SECTION : ACTIONS & RELANCES (journal CRM)
+   ===================================================================== */
+function vueActions() {
+  const reps = repsVisibles();
+  const toutes = actionsVisibles();
+  const f = S.filtreActions;
+  let liste = toutes;
+  if (f.rep) liste = liste.filter(a => a.repId === f.rep || (a.repId === TOUS && (a.repIds || []).includes(f.rep)));
+  if (f.relances) liste = liste.filter(a => etatRelance(a));
+  const compte = etat => toutes.filter(a => etatRelance(a) === etat).length;
+
+  return `
+    <section class="entete-page apparait">
+      <div><p class="surtitre">Suivi des revendeurs</p><h1>Actions & relances</h1></div>
+      <div class="actions-page">
+        ${filtreHTML()}
+        <button class="btn btn-primary" data-action="nouvelle-action">${ic('plus')}Nouvelle action</button>
+      </div>
+    </section>
+
+    <section class="kpis apparait">
+      ${kpi('alerte', 'Relances en retard', compte('retard'), 'Date de relance dépassée')}
+      ${kpi('horloge', "Relances du jour", compte('jour'), "Prévues aujourd'hui")}
+      ${kpi('calendrier', 'Relances à venir', compte('avenir'), 'À faire ou en attente')}
+      ${kpi('liste', 'Échanges enregistrés', toutes.length, 'Appels, mails, SMS, WhatsApp…')}
+    </section>
+
+    <section class="carte apparait">
+      <div class="carte-tete">
+        <div><div class="titre">${ic('liste')}<h2>Journal des échanges</h2></div>
+        <p>${liste.length} action${liste.length > 1 ? 's' : ''} · une relance groupée compte pour chaque revendeur signé avant sa date</p></div>
+        <div class="actions-page">
+          <label class="filtre"><span>Revendeur</span>
+            <select data-filtre="actions-rep"><option value="">Tous</option>
+              ${reps.map(r => `<option value="${esc(r.id)}" ${f.rep === r.id ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}
+            </select></label>
+          <div class="segment" role="group" aria-label="Filtrer les actions">
+            <button data-action="filtre-relances" data-val="0" aria-pressed="${!f.relances}">Toutes</button>
+            <button data-action="filtre-relances" data-val="1" aria-pressed="${f.relances}">Relances ouvertes</button>
+          </div>
+        </div>
+      </div>
+      <div class="table-defile" tabindex="0" aria-label="Journal défilant horizontalement">
+        <table class="donnees texte">
+          <thead><tr><th>Date</th><th>Revendeur</th><th>Type</th><th>Objet / motif</th><th>Détail / compte-rendu</th><th>Résultat</th><th>Prochaine action</th><th>Relance</th><th>Statut</th><th></th></tr></thead>
+          <tbody>${liste.map(a => {
+            const etat = etatRelance(a);
+            return `<tr class="${etat === 'retard' ? 'ligne-retard' : etat === 'jour' ? 'ligne-jour' : ''}">
+              <td class="mono">${fmtDate(a.date)}</td>
+              <td>${a.repId === TOUS ? `<span class="puce puce-orange" title="${esc((a.repIds || []).map(nomRep).join(', '))}">Tous · ${(a.repIds || []).length}</span>` : lienRep(a.repId)}</td>
+              <td>${esc(a.type)}</td>
+              <td>${esc(a.objet)}</td>
+              <td class="wrap">${esc(a.detail)}</td>
+              <td>${esc(a.resultat)}</td>
+              <td class="wrap">${esc(a.prochaine)}</td>
+              <td>${a.relance ? puceRelance(a.relance, etat) : '—'}</td>
+              <td>${esc(a.statut || '—')}</td>
+              <td class="outils">
+                ${etat ? `<button class="btn-icone" data-action="action-faite" data-id="${esc(a.id)}" aria-label="Marquer la relance comme faite" title="Relance faite">${ic('valide')}</button>` : ''}
+                <button class="btn-icone" data-action="modifier-action" data-id="${esc(a.id)}" aria-label="Modifier l'action" title="Modifier">${ic('crayon')}</button>
+                <button class="btn-icone danger" data-action="supprimer-action" data-id="${esc(a.id)}" aria-label="Supprimer l'action" title="Supprimer">${ic('corbeille')}</button>
+              </td>
+            </tr>`;
+          }).join('') || ligneVide(10, toutes.length ? 'Aucune action pour ce filtre.' : 'Aucun échange enregistré : cliquez sur « Nouvelle action ».')}</tbody>
+        </table>
+      </div>
+    </section>`;
+}
+
+function formAction(a) {
+  return `<div class="grille-form">
+    <label class="champ"><span>Date</span><input type="date" name="date" value="${esc(a.date || AUJ)}" required></label>
+    <label class="champ"><span>Revendeur</span><select name="repId" required>
+      <option value="">Choisir…</option>
+      <option value="${TOUS}" ${a.repId === TOUS ? 'selected' : ''}>TOUS (relance groupée)</option>
+      ${repsVisibles().map(r => `<option value="${esc(r.id)}" ${a.repId === r.id ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}
+    </select></label>
+    <label class="champ"><span>Type d'action</span><select name="type">${options(TYPES_ACTION, a.type || 'Appel')}</select></label>
+    <label class="champ large"><span>Objet / motif</span><input name="objet" value="${esc(a.objet || '')}" placeholder="Ex. relance tableau, formation, envoi du fichier" autocomplete="off"></label>
+    <label class="champ large"><span>Détail / compte-rendu</span><textarea name="detail" rows="3">${esc(a.detail || '')}</textarea></label>
+    <label class="champ"><span>Résultat</span><select name="resultat"><option value="">—</option>${options(RESULTATS_ACTION, a.resultat || '')}</select></label>
+    <label class="champ"><span>Date de relance</span><input type="date" name="relance" value="${esc(a.relance || '')}"></label>
+    <label class="champ"><span>Statut de la relance</span><select name="statut"><option value="">—</option>${options(STATUTS_RELANCE, a.statut || '')}</select></label>
+    <label class="champ large"><span>Prochaine action</span><input name="prochaine" value="${esc(a.prochaine || '')}" autocomplete="off"></label>
+  </div>`;
+}
+
+async function ouvrirAction(a = {}) {
+  const edition = !!a.id;
+  await modale({
+    titre: edition ? "Modifier l'action" : 'Nouvelle action',
+    ok: 'Enregistrer',
+    large: true,
+    html: formAction(a),
+    valider: async d => {
+      if (!d.date) throw new Error("Indiquez la date de l'action.");
+      if (!d.repId) throw new Error('Choisissez un revendeur, ou « TOUS » pour une relance groupée.');
+      if (d.repId !== TOUS) repAutorise(d.repId);
+      const maintenant = new Date().toISOString();
+      const action = {
+        date: d.date, repId: d.repId, type: d.type, objet: d.objet.trim(), detail: d.detail.trim(),
+        resultat: d.resultat, prochaine: d.prochaine.trim(), relance: d.relance,
+        statut: d.statut || (d.relance ? 'À faire' : ''),
+        repIds: d.repId === TOUS ? repsVisibles().filter(r => !r.dateSign || r.dateSign <= d.date).map(r => r.id) : undefined,
+      };
+      S.actions = await majListe('team:actions', l => edition
+        ? l.map(x => x.id === a.id ? { ...x, ...action, majLe: maintenant } : x)
+        : [...l, { id: uid('a'), ...action, auteur: S.session.id, creeLe: maintenant }]);
+      toast(edition ? 'Action mise à jour.' : 'Action enregistrée.');
+      rendreManager();
+    },
+  });
+}
+
+/* =====================================================================
+   SECTION : RETOURS POSITIFS (demandes de RDV)
+   ===================================================================== */
+function vueRdv() {
+  const tous = rdvVisibles();
+  const liste = S.filtreRdv ? tous.filter(x => (x.statut || 'À rappeler') === S.filtreRdv) : tous;
+  const compte = s => tous.filter(x => (x.statut || 'À rappeler') === s).length;
+  return `
+    <section class="entete-page apparait">
+      <div><p class="surtitre">Prospects intéressés</p><h1>Retours positifs <span class="muted">· ${tous.length}</span></h1></div>
+      <div class="actions-page">
+        ${filtreHTML()}
+        <button class="btn btn-primary" data-action="nouveau-rdv">${ic('plus')}Nouveau retour</button>
+      </div>
+    </section>
+
+    <section class="kpis apparait">
+      ${kpi('telephone', 'À rappeler', compte('À rappeler'), 'Formulaire reçu, à traiter')}
+      ${kpi('calendrier', 'RDV fixés', compte('RDV fixé'), `<b>${compte('RDV fait')}</b> RDV faits`)}
+      ${kpi('trophee', 'Signés', compte('Signé'), tous.length ? `Taux de signature <b>${fmtPct(parSur(compte('Signé'), tous.length))}</b>` : '')}
+      ${kpi('alerte', 'Sans suite', compte('Sans suite'), '')}
+    </section>
+
+    <section class="carte apparait">
+      <div class="carte-tete">
+        <div><div class="titre">${ic('rdv')}<h2>Demandes de RDV</h2></div>
+        <p>Une ligne par formulaire reçu · changez le statut directement dans le tableau</p></div>
+        <div class="segment" role="group" aria-label="Filtrer par statut">
+          <button data-action="filtre-rdv" data-val="" aria-pressed="${!S.filtreRdv}">Tous</button>
+          ${STATUTS_RDV.map(s => `<button data-action="filtre-rdv" data-val="${esc(s)}" aria-pressed="${S.filtreRdv === s}">${esc(s)}</button>`).join('')}
+        </div>
+      </div>
+      <div class="table-defile" tabindex="0" aria-label="Retours défilant horizontalement">
+        <table class="donnees texte">
+          <thead><tr><th>Reçu le</th><th>Sem.</th><th>Téléprospecteur</th><th>Entreprise</th><th>Contact</th><th>Activité</th><th>CP</th><th>Téléphone</th><th>Disponibilités</th><th>Statut</th><th>Commentaire</th><th></th></tr></thead>
+          <tbody>${liste.map(x => `<tr>
+            <td class="mono">${fmtDateHeure(x.date)}</td>
+            <td class="mono">${x.date ? 'S' + numSemaine(cleSemaine(new Date(x.date.slice(0, 10) + 'T00:00:00Z'))) : '—'}</td>
+            <td>${lienRep(x.repId)}</td>
+            <td><strong>${esc(x.entreprise)}</strong></td>
+            <td>${esc(x.contact)}</td>
+            <td>${esc(x.activite)}</td>
+            <td class="mono">${esc(x.cp)}</td>
+            <td class="mono">${x.tel ? `<a href="tel:${esc(x.tel.replace(/\s/g, ''))}" style="color:inherit">${esc(x.tel)}</a>` : '—'}</td>
+            <td class="wrap">${esc(x.dispo)}</td>
+            <td><select class="select-ligne" data-rdv-statut="${esc(x.id)}" aria-label="Statut du RDV">${options(STATUTS_RDV, x.statut || 'À rappeler')}</select></td>
+            <td class="wrap">${esc(x.commentaire)}</td>
+            <td class="outils">
+              <button class="btn-icone" data-action="modifier-rdv" data-id="${esc(x.id)}" aria-label="Modifier" title="Modifier">${ic('crayon')}</button>
+              <button class="btn-icone danger" data-action="supprimer-rdv" data-id="${esc(x.id)}" aria-label="Supprimer" title="Supprimer">${ic('corbeille')}</button>
+            </td>
+          </tr>`).join('') || ligneVide(12, tous.length ? 'Aucun retour avec ce statut.' : 'Aucun retour positif enregistré : cliquez sur « Nouveau retour ».')}</tbody>
+        </table>
+      </div>
+    </section>`;
+}
+
+async function ouvrirRdv(x = {}) {
+  const edition = !!x.id;
+  const maintenant = new Date();
+  const valeurDate = x.date || `${dateISO(maintenant)}T${deux(maintenant.getHours())}:${deux(maintenant.getMinutes())}`;
+  await modale({
+    titre: edition ? 'Modifier le retour' : 'Nouveau retour positif',
+    ok: 'Enregistrer',
+    large: true,
+    html: `<div class="grille-form">
+      <label class="champ"><span>Reçu le</span><input type="datetime-local" name="date" value="${esc(valeurDate)}" required></label>
+      <label class="champ"><span>Téléprospecteur</span><select name="repId" required>
+        <option value="">Choisir…</option>
+        ${repsVisibles().map(r => `<option value="${esc(r.id)}" ${x.repId === r.id ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}
+      </select></label>
+      <label class="champ"><span>Statut</span><select name="statut">${options(STATUTS_RDV, x.statut || 'À rappeler')}</select></label>
+      <label class="champ"><span>Entreprise</span><input name="entreprise" value="${esc(x.entreprise || '')}" autocomplete="off" required></label>
+      <label class="champ"><span>Nom et prénom du contact</span><input name="contact" value="${esc(x.contact || '')}" autocomplete="off"></label>
+      <label class="champ"><span>Activité</span><input name="activite" value="${esc(x.activite || '')}" autocomplete="off"></label>
+      <label class="champ"><span>Code postal</span><input name="cp" value="${esc(x.cp || '')}" inputmode="numeric" autocomplete="off"></label>
+      <label class="champ"><span>Téléphone</span><input name="tel" value="${esc(x.tel || '')}" inputmode="tel" autocomplete="off"></label>
+      <label class="champ"><span>Jours / heures pour le joindre</span><input name="dispo" value="${esc(x.dispo || '')}" autocomplete="off"></label>
+      <label class="champ large"><span>Commentaire</span><textarea name="commentaire" rows="2">${esc(x.commentaire || '')}</textarea></label>
+    </div>`,
+    valider: async d => {
+      if (!d.date) throw new Error('Indiquez la date de réception.');
+      if (!d.repId) throw new Error('Choisissez le téléprospecteur.');
+      if (!d.entreprise.trim()) throw new Error("Indiquez le nom de l'entreprise.");
+      repAutorise(d.repId);
+      const champs = Object.fromEntries(['date', 'repId', 'statut', 'entreprise', 'contact', 'activite', 'cp', 'tel', 'dispo', 'commentaire'].map(k => [k, String(d[k] || '').trim()]));
+      S.rdv = await majListe('team:rdv', l => edition
+        ? l.map(y => y.id === x.id ? { ...y, ...champs, majLe: new Date().toISOString() } : y)
+        : [...l, { id: uid('v'), ...champs, auteur: S.session.id, creeLe: new Date().toISOString() }]);
+      toast(edition ? 'Retour mis à jour.' : 'Retour positif enregistré.');
+      rendreManager();
+    },
+  });
+}
+
+/* =====================================================================
+   SECTION : CLICS SMS (propriétaire, chiffre global par semaine)
+   ===================================================================== */
+function vueClics() {
+  const semaines = Array.from({ length: 12 }, (_, i) => decalerSemaine(S.semaine, -i));
+  const smsSemaine = s => S.reps.reduce((n, r) => {
+    const e = saisieSemaine(r.id, s);
+    return n + (e ? (Number(e.sms1) || 0) + (Number(e.sms2) || 0) : 0);
+  }, 0);
+  const totalClics = semaines.reduce((n, s) => n + (Number(S.clics[s]) || 0), 0);
+  const totalSms = semaines.reduce((n, s) => n + smsSemaine(s), 0);
+  return `
+    <section class="entete-page apparait">
+      <div><p class="surtitre">Lien envoyé par SMS</p><h1>Clics SMS</h1></div>
+    </section>
+    <form class="carte apparait" id="form-clics" novalidate>
+      <div class="carte-tete">
+        <div><div class="titre">${ic('clic')}<h2>Clics par semaine</h2></div>
+        <p>Saisissez le nombre total de clics sur le lien (tous revendeurs). Les SMS envoyés viennent des déclarations des téléprospecteurs.</p></div>
+      </div>
+      <div class="table-defile">
+        <table class="donnees" style="min-width:560px">
+          <thead><tr><th scope="col">Semaine</th><th scope="col">Clics</th><th scope="col">SMS envoyés (SMS 1 + SMS 2)</th><th scope="col">Taux de clic</th></tr></thead>
+          <tbody>${semaines.map(s => {
+            const sms = smsSemaine(s);
+            const clics = S.clics[s];
+            return `<tr>
+              <td><div class="nom-cell"><div class="nom"><strong>Semaine ${numSemaine(s)}</strong><small>${plageSemaine(s)}</small></div></div></td>
+              <td><input class="champ-clics" type="number" min="0" step="1" name="${s}" value="${clics ?? ''}" placeholder="—" aria-label="Clics semaine ${numSemaine(s)}"></td>
+              <td>${fmtNombre(sms)}</td>
+              <td class="taux">${clics != null && clics !== '' ? fmtPct(parSur(Number(clics), sms)) : '—'}</td>
+            </tr>`;
+          }).join('')}</tbody>
+          <tfoot><tr><td>Total 12 semaines</td><td>${fmtNombre(totalClics)}</td><td>${fmtNombre(totalSms)}</td><td>${fmtPct(parSur(totalClics, totalSms))}</td></tr></tfoot>
+        </table>
+      </div>
+      <div class="barre-action">
+        <span class="note">Taux de clic = clics ÷ SMS envoyés par tous les revendeurs la même semaine.</span>
+        <button type="submit" class="btn btn-primary">${ic('valide')}Enregistrer les clics</button>
+      </div>
+    </form>`;
+}
+
+/* =====================================================================
+   IMPORT DU FICHIER EXCEL DE SUIVI (Suivi_Teleprospecteurs.xlsx)
+   Rien n'est effacé : les fiches existantes sont complétées, les semaines déjà
+   déclarées dans l'application sont conservées, les lignes déjà importées ignorées.
+   ===================================================================== */
+// Date Excel (numéro de série ou texte JJ/MM/AAAA) -> "AAAA-MM-JJ" (ou "AAAA-MM-JJTHH:MM")
+function dateExcel(v, avecHeure = false) {
+  if (v === '' || v == null) return '';
+  if (typeof v === 'number') {
+    const iso = new Date(Math.round((v - 25569) * 864e5)).toISOString();
+    return avecHeure ? iso.slice(0, 16) : iso.slice(0, 10);
+  }
+  const m = String(v).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+  if (m) return `${m[3]}-${deux(m[2])}-${deux(m[1])}` + (avecHeure && m[4] ? `T${deux(m[4])}:${m[5]}` : '');
+  return /^\d{4}-\d{2}-\d{2}/.test(String(v)) ? String(v).slice(0, avecHeure ? 16 : 10) : '';
+}
+// Téléphone ou code postal stocké en nombre par Excel : le zéro de tête est rétabli
+function texteNum(v, longueur) {
+  if (typeof v === 'number' && String(v).length === longueur - 1) return '0' + v;
+  return String(v ?? '').trim();
+}
+
+async function ouvrirImport() {
+  let bilan = null;
+  await modale({
+    titre: 'Importer le fichier Excel',
+    ok: 'Importer',
+    html: `
+      <p>Choisissez le classeur de suivi des télépros (<strong>Suivi_Teleprospecteurs.xlsx</strong>). Sont repris : fiches revendeurs, saisies hebdo, journal d'actions, clics SMS et retours positifs.</p>
+      <label class="champ"><span>Fichier Excel</span><input type="file" name="fichier" accept=".xlsx,.xlsm" required></label>
+      <label class="champ"><span>Rattacher les nouveaux revendeurs à</span><select name="managerId">
+        <option value="${OWNER}">Moi (propriétaire)</option>
+        ${S.managers.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('')}
+      </select></label>
+      <p class="note">Rien n'est effacé et un second import ne crée pas de doublons. Les nouveaux revendeurs n'ont pas de mot de passe : définissez-le avec le crayon de leur fiche pour qu'ils puissent se connecter.</p>`,
+    valider: async d => {
+      if (!(d.fichier instanceof File) || !d.fichier.size) throw new Error('Choisissez le fichier Excel à importer.');
+      bilan = await importerExcel(d.fichier, d.managerId || OWNER);
+    },
+  });
+  if (!bilan) return;
+  rendreManager();
+  await modale({ titre: 'Import terminé', ok: 'Fermer', annuler: null, html: `<ul class="bilan">${bilan.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` });
+}
+
+async function importerExcel(fichier, managerId) {
+  if (!window.XLSX) throw new Error("La librairie Excel n'a pas pu être chargée. Vérifiez votre connexion puis rechargez la page.");
+  let wb;
+  try { wb = XLSX.read(await fichier.arrayBuffer()); }
+  catch { throw new Error("Ce fichier n'a pas pu être lu comme un classeur Excel."); }
+
+  // Repère la ligne d'en-têtes d'un onglet (première cellule = premiereEntete)
+  const tableauOnglet = (nom, premiereEntete) => {
+    const ws = wb.Sheets[nom];
+    if (!ws) return null;
+    const lignes = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+    const i = lignes.findIndex(l => normaliser(l[0] ?? '') === normaliser(premiereEntete));
+    if (i < 0) return null;
+    const index = Object.fromEntries(lignes[i].map((h, j) => [normaliser(h ?? ''), j]));
+    const col = (ligne, entete) => { const j = index[normaliser(entete)]; return j == null ? '' : ligne[j]; };
+    return { col, debut: lib => index[normaliser(lib)], lignes: lignes.slice(i + 1).filter(l => l.some(v => v !== '' && v != null)) };
+  };
+  const txt = v => String(v ?? '').trim();
+  const maintenant = new Date().toISOString();
+  const bilan = [];
+  const inconnus = new Set();
+
+  // 1. Fiches revendeurs
+  const tRev = tableauOnglet('Revendeurs', 'Nom revendeur');
+  if (!tRev) throw new Error("Onglet « Revendeurs » introuvable : choisissez le classeur de suivi des télépros.");
+  let crees = 0, completes = 0;
+  S.reps = await majListe('team:reps', liste => {
+    const l = [...liste];
+    for (const x of tRev.lignes) {
+      const nom = txt(tRev.col(x, 'Nom revendeur')).replace(/\s+/g, ' ');
+      if (!nom) continue;
+      const fiche = {
+        dateSign: dateExcel(tRev.col(x, 'Date sign')),
+        tel: texteNum(tRev.col(x, 'Téléphone'), 10),
+        dpt: txt(tRev.col(x, 'DPT')),
+        heuresPrevues: txt(tRev.col(x, "Nbr d'heure")),
+        email: txt(tRev.col(x, 'Email')),
+        formation: txt(tRev.col(x, 'Formation aerial')).toLowerCase(),
+        envoiElements: txt(tRev.col(x, 'Envoi éléments')).toLowerCase(),
+        fichier: txt(tRev.col(x, 'Fichier')).toLowerCase(),
+        statut: txt(tRev.col(x, 'Statut')),
+      };
+      const renseignes = Object.fromEntries(Object.entries(fiche).filter(([, v]) => v));
+      const i = l.findIndex(r => normaliser(r.name) === normaliser(nom));
+      if (i >= 0) { l[i] = { ...l[i], ...renseignes }; completes++; }
+      else { l.push({ id: uid('r'), name: nom, password: '', managerId, creeLe: maintenant, statut: 'Actif', ...renseignes }); crees++; }
+    }
+    return l;
+  });
+  bilan.push(`Revendeurs : ${crees} fiche${crees > 1 ? 's' : ''} créée${crees > 1 ? 's' : ''}, ${completes} complétée${completes > 1 ? 's' : ''}.`);
+  const idParNom = new Map(S.reps.map(r => [normaliser(r.name), r.id]));
+
+  // 2. Saisies hebdo -> déclarations (une semaine déjà déclarée dans l'application est conservée)
+  const tSai = tableauOnglet('Saisie hebdo', 'Année');
+  if (tSai) {
+    const premier = tSai.debut('Temps de travail (h)');
+    const parRep = {};
+    for (const x of tSai.lignes) {
+      const annee = Number(tSai.col(x, 'Année')), num = Number(tSai.col(x, 'N° semaine'));
+      const nom = txt(tSai.col(x, 'Nom revendeur'));
+      if (!annee || !num || !nom || premier == null) continue;
+      const id = idParNom.get(normaliser(nom));
+      if (!id) { inconnus.add(nom); continue; }
+      const recu = dateExcel(tSai.col(x, 'Date de réception du tableau'));
+      const chiffres = Object.fromEntries(CHAMPS.map((c, j) => [c.k, Number(x[premier + j]) || 0]));
+      (parRep[id] ||= {})[`${annee}-W${deux(num)}`] = { ...chiffres, majLe: recu ? recu + 'T12:00:00.000Z' : maintenant, recuLe: recu ? recu + 'T12:00:00.000Z' : null, importe: true };
+    }
+    let ajoutees = 0, gardees = 0;
+    for (const [id, semaines] of Object.entries(parRep)) {
+      const cle = 'team:entries:' + id;
+      const toutes = (await kvGet(cle)) || {};
+      for (const [s, e] of Object.entries(semaines)) {
+        if (toutes[s]) gardees++; else { toutes[s] = e; ajoutees++; }
+      }
+      await kvSet(cle, toutes);
+      S.entries[id] = toutes;
+    }
+    bilan.push(`Saisies hebdo : ${ajoutees} semaine${ajoutees > 1 ? 's' : ''} importée${ajoutees > 1 ? 's' : ''}` + (gardees ? `, ${gardees} déjà déclarée${gardees > 1 ? 's' : ''} dans l'application (conservée${gardees > 1 ? 's' : ''}).` : '.'));
+  }
+
+  // 3. Journal d'actions (CRM)
+  const tAct = tableauOnglet('Mes actions (CRM)', 'Date');
+  if (tAct) {
+    const signature = a => [a.date, a.repId, a.type, normaliser(a.objet), normaliser(a.detail)].join('|');
+    let ajoutees = 0, doublons = 0;
+    S.actions = await majListe('team:actions', liste => {
+      const deja = new Set(liste.map(signature));
+      const l = [...liste];
+      for (const x of tAct.lignes) {
+        const date = dateExcel(tAct.col(x, 'Date'));
+        const nom = txt(tAct.col(x, 'Nom revendeur'));
+        if (!date || !nom) continue;
+        const groupee = normaliser(nom).startsWith('tous');
+        const repId = groupee ? TOUS : idParNom.get(normaliser(nom));
+        if (!repId) { inconnus.add(nom); continue; }
+        const a = {
+          date, repId,
+          type: txt(tAct.col(x, "Type d'action")), objet: txt(tAct.col(x, 'Objet / motif')),
+          detail: txt(tAct.col(x, 'Détail / compte-rendu')), resultat: txt(tAct.col(x, 'Résultat')),
+          prochaine: txt(tAct.col(x, 'Prochaine action')), relance: dateExcel(tAct.col(x, 'Date de relance')),
+          statut: txt(tAct.col(x, 'Statut relance')),
+        };
+        if (!a.statut && a.relance) a.statut = 'À faire';
+        if (groupee) a.repIds = S.reps.filter(r => !r.dateSign || r.dateSign <= date).map(r => r.id);
+        if (deja.has(signature(a))) { doublons++; continue; }
+        deja.add(signature(a));
+        l.push({ id: uid('a'), ...a, auteur: S.session.id, creeLe: maintenant, importe: true });
+        ajoutees++;
+      }
+      return l;
+    });
+    bilan.push(`Actions : ${ajoutees} importée${ajoutees > 1 ? 's' : ''}` + (doublons ? `, ${doublons} déjà présente${doublons > 1 ? 's' : ''}.` : '.'));
+  }
+
+  // 4. Clics SMS (une semaine déjà saisie dans l'application est conservée)
+  const tClics = tableauOnglet('Clics SMS', 'Année');
+  if (tClics) {
+    const clics = (await kvGet('team:clics')) || {};
+    let ajoutees = 0;
+    for (const x of tClics.lignes) {
+      const annee = Number(tClics.col(x, 'Année')), num = Number(tClics.col(x, 'N° semaine'));
+      const v = tClics.col(x, 'Nbre de clics (global)');
+      const s = `${annee}-W${deux(num)}`;
+      if (!annee || !num || v === '' || clics[s] != null) continue;
+      clics[s] = Number(v) || 0;
+      ajoutees++;
+    }
+    if (ajoutees) await kvSet('team:clics', clics);
+    S.clics = clics;
+    bilan.push(`Clics SMS : ${ajoutees} semaine${ajoutees > 1 ? 's' : ''} importée${ajoutees > 1 ? 's' : ''}.`);
+  }
+
+  // 5. Retours positifs : télépro retrouvé par son e-mail, sinon par son nom
+  const tRdv = tableauOnglet('Retours positifs (RDV)', 'Date de réponse');
+  if (tRdv) {
+    const signature = r => [String(r.date).slice(0, 16), normaliser(r.entreprise), String(r.tel).replace(/\D/g, '')].join('|');
+    let ajoutes = 0, doublons = 0, sansTelepro = 0;
+    S.rdv = await majListe('team:rdv', liste => {
+      const deja = new Set(liste.map(signature));
+      const l = [...liste];
+      for (const x of tRdv.lignes) {
+        const date = dateExcel(tRdv.col(x, 'Date de réponse'), true);
+        const entreprise = txt(tRdv.col(x, "Nom de l'entreprise"));
+        if (!date && !entreprise) continue;
+        const email = normaliser(tRdv.col(x, 'Télépro (email)'));
+        // la case e-mail d'une fiche peut contenir plusieurs adresses
+        const repId = (email && S.reps.find(r => String(r.email || '').split(/[\s,;]+/).some(a => a && normaliser(a) === email))?.id)
+          || idParNom.get(normaliser(tRdv.col(x, 'Nom revendeur'))) || '';
+        if (!repId) sansTelepro++;
+        const r = {
+          date, repId, emailTelepro: txt(tRdv.col(x, 'Télépro (email)')), entreprise,
+          contact: txt(tRdv.col(x, 'Nom + prénom')), activite: txt(tRdv.col(x, 'Activité')),
+          cp: texteNum(tRdv.col(x, 'Code postal'), 5), tel: texteNum(tRdv.col(x, 'Téléphone'), 10),
+          dispo: txt(tRdv.col(x, 'Jours / heures pour le joindre')),
+          statut: txt(tRdv.col(x, 'Statut du RDV')) || 'À rappeler', commentaire: txt(tRdv.col(x, 'Commentaire')),
+        };
+        if (deja.has(signature(r))) { doublons++; continue; }
+        deja.add(signature(r));
+        l.push({ id: uid('v'), ...r, auteur: S.session.id, creeLe: maintenant, importe: true });
+        ajoutes++;
+      }
+      return l;
+    });
+    bilan.push(`Retours positifs : ${ajoutes} importé${ajoutes > 1 ? 's' : ''}` + (doublons ? `, ${doublons} déjà présent${doublons > 1 ? 's' : ''}` : '')
+      + (sansTelepro ? ` ; ${sansTelepro} sans téléprospecteur reconnu (à attribuer, visibles par le propriétaire en « Tout le monde »).` : '.'));
+  }
+
+  if (inconnus.size) bilan.push(`Noms absents de l'onglet Revendeurs, lignes ignorées : ${[...inconnus].join(', ')}.`);
+  return bilan;
+}
+
+/* --- Actions des sections CRM (délégation) --- */
+$('main').addEventListener('click', async e => {
+  const b = e.target.closest('[data-action]');
+  if (!b || !S.session || S.session.role === 'rep') return;
+  const action = b.dataset.action;
+  const garde = async f => { try { await f(); } catch (x) { console.error(x); toast(x.message, 'erreur'); } };
+
+  if (action === 'vue') { S.vue = b.dataset.vue; rendreManager(); window.scrollTo({ top: 0 }); return; }
+  if (action === 'fiche-rep') return garde(() => ouvrirFiche(b.dataset.id));
+  if (action === 'nouveau-rep') return garde(ouvrirNouveauRep);
+  if (action === 'nouvelle-action') return garde(() => ouvrirAction({ repId: S.filtreActions.rep }));
+  if (action === 'modifier-action') return garde(() => ouvrirAction(S.actions.find(a => a.id === b.dataset.id) || {}));
+  if (action === 'filtre-relances') { S.filtreActions.relances = b.dataset.val === '1'; rendreManager(); return; }
+  if (action === 'filtre-rdv') { S.filtreRdv = b.dataset.val; rendreManager(); return; }
+  if (action === 'nouveau-rdv') return garde(() => ouvrirRdv());
+  if (action === 'modifier-rdv') return garde(() => ouvrirRdv(S.rdv.find(x => x.id === b.dataset.id) || {}));
+  if (action === 'importer' && S.session.role === 'owner') return garde(ouvrirImport);
+
+  if (action === 'action-faite') {
+    return tenter(b, async () => {
+      S.actions = await majListe('team:actions', l => l.map(a => a.id === b.dataset.id ? { ...a, statut: 'Fait', majLe: new Date().toISOString() } : a));
+      toast('Relance marquée comme faite.');
+      rendreManager();
+    });
+  }
+  if (action === 'supprimer-action') {
+    if (!(await confirmer('Supprimer cette action ?', 'Elle disparaîtra du journal et de la fiche du revendeur.'))) return;
+    return tenter(null, async () => {
+      S.actions = await majListe('team:actions', l => l.filter(a => a.id !== b.dataset.id));
+      toast('Action supprimée.');
+      rendreManager();
+    });
+  }
+  if (action === 'supprimer-rdv') {
+    const x = S.rdv.find(y => y.id === b.dataset.id);
+    if (!x || !(await confirmer('Supprimer ce retour ?', `Le retour de ${esc(x.entreprise || 'cette entreprise')} sera définitivement supprimé.`))) return;
+    return tenter(null, async () => {
+      S.rdv = await majListe('team:rdv', l => l.filter(y => y.id !== x.id));
+      toast('Retour supprimé.');
+      rendreManager();
+    });
+  }
+});
+
+$('main').addEventListener('change', e => {
+  const t = e.target;
+  if (t.dataset.filtre === 'actions-rep') { S.filtreActions.rep = t.value; rendreManager(); return; }
+  if (t.dataset.rdvStatut) {
+    const id = t.dataset.rdvStatut;
+    tenter(null, async () => {
+      S.rdv = await majListe('team:rdv', l => l.map(x => x.id === id ? { ...x, statut: t.value, majLe: new Date().toISOString() } : x));
+      toast(`Statut passé à « ${t.value} ».`);
+      rendreManager();
+    });
+  }
+});
+
+$('main').addEventListener('submit', e => {
+  if (e.target.id !== 'form-clics') return;
+  e.preventDefault();
+  const form = e.target;
+  const saisis = {};
+  for (const input of form.querySelectorAll('input[type=number]')) {
+    const v = input.value.trim();
+    if (v === '') continue;
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 0) return toast(`Semaine ${numSemaine(input.name)} : le nombre de clics doit être un entier positif.`, 'erreur');
+    saisis[input.name] = n;
+  }
+  tenter(form.querySelector('[type=submit]'), async () => {
+    const clics = (await kvGet('team:clics')) || {};
+    // Une case vidée efface la valeur de la semaine
+    for (const input of form.querySelectorAll('input[type=number]')) {
+      if (input.name in saisis) clics[input.name] = saisis[input.name]; else delete clics[input.name];
+    }
+    await kvSet('team:clics', clics);
+    S.clics = clics;
+    toast('Clics enregistrés.');
     rendreManager();
   });
 });
